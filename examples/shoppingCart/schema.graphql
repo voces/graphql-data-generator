@@ -1,0 +1,63 @@
+type Query {
+  # Queries for the product catalog
+  products: [Product!]!
+  product(id: ID!): Product!
+
+  # Queries for the shopping cart
+  cart: Cart!
+}
+
+type Mutation {
+  # Mutations for managing products
+  addProduct(input: AddProductInput!): Product!
+  updateProduct(id: ID!, input: UpdateProductInput!): Product!
+  deleteProduct(id: ID!): Boolean!
+
+  # Mutations for managing the shopping cart
+  addItemToCart(input: AddItemToCartInput!): Cart!
+  removeItemFromCart(productId: ID!): Cart!
+  clearCart: Cart!
+}
+
+# Product-related types
+type Product {
+  id: ID!
+  name: String!
+  description: String
+  price: Float!
+  stock: Int!
+  category: String
+}
+
+input AddProductInput {
+  name: String!
+  description: String
+  price: Float!
+  stock: Int!
+  category: String
+}
+
+input UpdateProductInput {
+  name: String
+  description: String
+  price: Float
+  stock: Int
+  category: String
+}
+
+# Shopping cart-related types
+type Cart {
+  items: [CartItem!]!
+  totalItems: Int!
+  totalPrice: Float!
+}
+
+type CartItem {
+  product: Product!
+  quantity: Int!
+}
+
+input AddItemToCartInput {
+  productId: ID!
+  quantity: Int!
+}

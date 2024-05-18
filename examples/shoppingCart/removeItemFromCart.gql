@@ -1,0 +1,14 @@
+mutation removeItemFromCart($productId: ID!) {
+  removeItemFromCart(productId: $productId) {
+    items {
+      product {
+        id
+        name
+        price
+      }
+      quantity
+    }
+    totalItems
+    totalPrice
+  }
+}

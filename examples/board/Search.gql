@@ -1,0 +1,15 @@
+#import "./NodeFragment.graphql"
+
+query Search($term: String!) {
+  search(term: $term) {
+    ...NodeFragment
+    ... on User {
+      name
+      email
+    }
+    ... on Post {
+      title
+      content
+    }
+  }
+}

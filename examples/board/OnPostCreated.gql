@@ -1,0 +1,12 @@
+subscription OnPostCreated {
+  postCreated {
+    id
+    title
+    content
+    author {
+      id
+      name
+    }
+    createdAt
+  }
+}

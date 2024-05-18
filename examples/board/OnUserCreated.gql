@@ -1,0 +1,10 @@
+subscription OnUserCreated {
+  userCreated {
+    id
+    name
+    email
+    role
+    profilePicture
+    createdAt
+  }
+}

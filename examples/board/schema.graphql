@@ -1,0 +1,81 @@
+# Define custom scalars
+scalar DateTime
+scalar URL
+
+# Enum type
+enum Role {
+  ADMIN
+  USER
+  GUEST
+}
+
+# Interface for common fields
+interface Node {
+  id: ID!
+  createdAt: DateTime!
+}
+
+# Types implementing Node interface
+type User implements Node {
+  id: ID!
+  createdAt: DateTime!
+  name: String!
+  email: String!
+  role: Role!
+  profilePicture: URL
+}
+
+type Post implements Node {
+  id: ID!
+  createdAt: DateTime!
+  title: String!
+  content: String!
+  author: User!
+}
+
+# Union type
+union SearchResult = User | Post
+
+# Input types for mutations
+input CreateUserInput {
+  name: String!
+  email: String!
+  role: Role!
+  profilePicture: URL
+}
+
+input CreatePostInput {
+  title: String!
+  content: String!
+  authorId: ID!
+}
+
+input UpdateUserInput {
+  id: ID!
+  name: String
+  email: String
+  role: Role
+  profilePicture: URL
+}
+
+# Query type
+type Query {
+  users: [User!]!
+  posts: [Post!]!
+  search(term: String!): [SearchResult!]!
+  node(id: ID!): Node
+}
+
+# Mutation type
+type Mutation {
+  createUser(input: CreateUserInput!): User!
+  createPost(input: CreatePostInput!): Post!
+  updateUser(input: UpdateUserInput!): User!
+  deleteUser(id: ID!): Boolean!
+}
+
+# Subscription type
+type Subscription {
+  userCreated: User!
+  postCreated: Post!
+}
