@@ -15,7 +15,7 @@ import {
   SelectionNode,
   TypeDefinitionNode,
 } from "npm:graphql";
-import { formatCode, raise } from "./util.ts";
+import { raise } from "./util.ts";
 
 type SerializableType =
   | { kind: "Name"; value: string; optional: boolean }
@@ -25,7 +25,8 @@ type SerializableType =
     value: Record<string, SerializableType>;
     conditionals?: SerializableType[];
     optional: boolean;
-  };
+  }
+  | { kind: "StringLiteral"; value: string; optional: boolean };
 
 const getType = (
   { type, ...props }: {
@@ -35,6 +36,7 @@ const getType = (
     definitions: Record<string, TypeDefinitionNode | undefined>;
     fragments: Record<string, FragmentDefinitionNode | undefined>;
     references: Record<string, [TypeDefinitionNode, boolean] | undefined>;
+    includeTypenames: boolean;
   },
 ): SerializableType => {
   if (type.kind === "NamedType") {
@@ -45,15 +47,28 @@ const getType = (
         props.definitions,
         props.fragments,
         props.references,
+        props.includeTypenames,
       ).reduce((union, [name, value, group]) => {
-        group ??= "base";
-        if (!union[group]) union[group] = {};
+        group ??= type.name.value;
+        if (!union[group]) {
+          union[group] = {};
+          if (
+            props.includeTypenames &&
+            props.definitions[group]?.kind === "ObjectTypeDefinition"
+          ) {
+            union[group].__typename = {
+              kind: "StringLiteral",
+              value: group,
+              optional: false,
+            };
+          }
+        }
         union[group]![name] = value;
         return union;
       }, {} as Record<string, Record<string, SerializableType>>);
 
-      const value = groupedValues.base ?? {};
-      delete groupedValues.base;
+      const value = groupedValues[type.name.value] ?? {};
+      delete groupedValues[type.name.value];
 
       return {
         kind: "Object",
@@ -93,6 +108,7 @@ const getSelectionsType = (
   definitions: Record<string, TypeDefinitionNode | undefined>,
   fragments: Record<string, FragmentDefinitionNode | undefined>,
   references: Record<string, [TypeDefinitionNode, boolean] | undefined>,
+  includeTypenames: boolean,
 ): SelectionType[] => {
   const selectionTypes: SelectionType[] = [];
   for (const selection of selections) {
@@ -124,6 +140,7 @@ const getSelectionsType = (
                 definitions,
                 fragments,
                 references,
+                includeTypenames,
               }),
             ]);
 
@@ -143,6 +160,7 @@ const getSelectionsType = (
                 definitions,
                 fragments,
                 references,
+                includeTypenames,
               ),
             );
             break;
@@ -160,6 +178,7 @@ const getSelectionsType = (
           definitions,
           fragments,
           references,
+          includeTypenames,
         );
 
         const group = selection.typeCondition?.name.value ??
@@ -190,6 +209,7 @@ const getSelectionsType = (
             definitions,
             fragments,
             references,
+            includeTypenames,
           ),
         );
         break;
@@ -207,6 +227,7 @@ const getOperationType = (
   fragments: Record<string, FragmentDefinitionNode>,
   root: Record<string, FieldDefinitionNode | undefined>,
   references: Record<string, [TypeDefinitionNode, boolean] | undefined>,
+  includeTypenames: boolean,
 ): SerializableType => ({
   kind: "Object",
   value: Object.fromEntries(
@@ -232,6 +253,7 @@ const getOperationType = (
           definitions,
           fragments,
           references,
+          includeTypenames,
         }),
       ] as const;
     }),
@@ -249,7 +271,13 @@ const getOperationVariables = (
       v,
     ) => [
       v.variable.name.value,
-      getType({ type: v.type, definitions: {}, fragments: {}, references }),
+      getType({
+        type: v.type,
+        references,
+        definitions: {},
+        fragments: {},
+        includeTypenames: false,
+      }),
     ]) ?? [],
   ),
   optional: false,
@@ -260,9 +288,15 @@ const serializeType = (type: SerializableType): string => {
     case "Name":
       return `${type.value}${type.optional ? " | null" : ""}`;
     case "List":
-      return `(${serializeType(type.value)})[]${
-        type.optional ? " | null" : ""
-      }`;
+      if (
+        type.value.optional ||
+        (type.value.kind === "Object" && type.value.conditionals?.length)
+      ) {
+        return `(${serializeType(type.value)})[]${
+          type.optional ? " | null" : ""
+        }`;
+      }
+      return `${serializeType(type.value)}[]${type.optional ? " | null" : ""}`;
     case "Object":
       return `${
         [
@@ -270,11 +304,13 @@ const serializeType = (type: SerializableType): string => {
             Object.entries(type.value).map(([key, value]) =>
               `${key}: ${serializeType(value)}`
             ).join(", ")
-          }}`.replace("{}", "{}"),
+          }}`,
           ...(type.conditionals?.map((c) => `(${serializeType(c)} | {})`) ??
             []),
         ].filter(Boolean).join(" & ")
       }${type.optional ? " | null" : ""}`;
+    case "StringLiteral":
+      return `"${type.value}"`;
   }
 };
 
@@ -292,7 +328,13 @@ const serializeInput = (
       ) => [
         f.name.value,
         fillOutInput(
-          getType({ type: f.type, definitions: {}, fragments: {}, references }),
+          getType({
+            type: f.type,
+            references,
+            definitions: {},
+            fragments: {},
+            includeTypenames: false,
+          }),
           inputs,
           references,
         ),
@@ -329,6 +371,8 @@ const fillOutInput = (
         references,
       );
     }
+    case "StringLiteral":
+      return input;
   }
 };
 
@@ -469,8 +513,9 @@ export const codegen = (
             let type = getType({
               type: v.type,
               definitions: inputs,
-              fragments: {},
               references,
+              fragments: {},
+              includeTypenames: false,
             });
             let inputType = fillOutInput(type, inputs, references);
 
@@ -500,6 +545,7 @@ ${
             fragments,
             roots[o.definition.operation],
             references,
+            includeTypenames,
           ));
           const variables = getOperationVariables(o.definition, references);
 

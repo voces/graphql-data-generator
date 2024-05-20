@@ -1,0 +1,36 @@
+{
+  "version": "3",
+  "packages": {
+    "specifiers": {
+      "jsr:@std/assert@^0.225.2": "jsr:@std/assert@0.225.2",
+      "jsr:@std/fs": "jsr:@std/fs@0.229.1",
+      "jsr:@std/path@^0.225.1": "jsr:@std/path@0.225.1",
+      "npm:graphql": "npm:graphql@16.6.0"
+    },
+    "jsr": {
+      "@std/assert@0.225.2": {
+        "integrity": "6fd566c3ea01654d29c2b633298b7fc7599716336233852eb87e9843658fa192"
+      },
+      "@std/fs@0.229.1": {
+        "integrity": "38d3fb31f0ca0a8c1118e039939188f32e291a3f7f17dc0868fec22024bdfadd",
+        "dependencies": [
+          "jsr:@std/assert@^0.225.2",
+          "jsr:@std/path@^0.225.1"
+        ]
+      },
+      "@std/path@0.225.1": {
+        "integrity": "8c3220635a73730eb51fe43de9e10b79e2724a5bb8638b9355d35ae012fd9429",
+        "dependencies": [
+          "jsr:@std/assert@^0.225.2"
+        ]
+      }
+    },
+    "npm": {
+      "graphql@16.6.0": {
+        "integrity": "sha512-KPIBPDlW7NxrbT/eh4qPXz5FiFdL5UbaA0XUNz2Rp3Z3hqBSkbj0GVjwFDztsWVauZUWsbKHgMg++sk8UX0bkw==",
+        "dependencies": {}
+      }
+    }
+  },
+  "remote": {}
+}
