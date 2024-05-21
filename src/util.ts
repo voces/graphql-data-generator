@@ -4,7 +4,6 @@ export const raise = (error: Error | string) => {
 };
 
 export const formatCode = async (input: string): Promise<string> => {
-  // return input;
   // Create the deno fmt subprocess
   const process = new Deno.Command("deno", {
     args: ["fmt", "-"],

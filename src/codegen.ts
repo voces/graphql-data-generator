@@ -25,6 +25,7 @@ type SerializableType =
     value: Record<string, SerializableType>;
     conditionals?: SerializableType[];
     optional: boolean;
+    nonExhaustive?: boolean;
   }
   | { kind: "StringLiteral"; value: string; optional: boolean };
 
@@ -52,16 +53,11 @@ const getType = (
         group ??= type.name.value;
         if (!union[group]) {
           union[group] = {};
-          if (
-            props.includeTypenames &&
-            props.definitions[group]?.kind === "ObjectTypeDefinition"
-          ) {
-            union[group].__typename = {
-              kind: "StringLiteral",
-              value: group,
-              optional: false,
-            };
-          }
+          Object.defineProperty(union[group], "__typename", {
+            enumerable: props.includeTypenames &&
+              props.definitions[group]?.kind === "ObjectTypeDefinition",
+            value: { kind: "StringLiteral", value: group, optional: false },
+          });
         }
         union[group]![name] = value;
         return union;
@@ -69,6 +65,26 @@ const getType = (
 
       const value = groupedValues[type.name.value] ?? {};
       delete groupedValues[type.name.value];
+
+      let nonExhaustive = false;
+      const def = props.definitions[type.name.value];
+      if (def?.kind === "InterfaceTypeDefinition") {
+        const implementations = Object.values(props.definitions)
+          .filter((v): v is TypeDefinitionNode =>
+            v?.kind === "ObjectTypeDefinition" &&
+              v.interfaces?.some((i) => i.name.value === def.name.value) ||
+            false
+          );
+        nonExhaustive = implementations
+          .some((i) => !(i.name.value in groupedValues));
+      } else if (def?.kind === "UnionTypeDefinition") {
+        const options = Object.values(props.definitions)
+          .filter((v): v is TypeDefinitionNode =>
+            def.types?.some((t) => v && t.name.value === v.name.value) ||
+            false
+          );
+        nonExhaustive = options.some((o) => !(o.name.value in groupedValues));
+      }
 
       return {
         kind: "Object",
@@ -78,6 +94,7 @@ const getType = (
           value,
           optional: false,
         })),
+        nonExhaustive,
         optional: props.optional ?? true,
       };
     }
@@ -290,25 +307,46 @@ const serializeType = (type: SerializableType): string => {
     case "List":
       if (
         type.value.optional ||
-        (type.value.kind === "Object" && type.value.conditionals?.length)
+        (type.value.kind === "Object" &&
+          ((type.value.conditionals?.length ?? 0) -
+            (Object.keys(type.value.value).length ? 0 : 1)))
       ) {
         return `(${serializeType(type.value)})[]${
           type.optional ? " | null" : ""
         }`;
       }
       return `${serializeType(type.value)}[]${type.optional ? " | null" : ""}`;
-    case "Object":
+    case "Object": {
+      const content = Object.entries(type.value).map(([key, value]) =>
+        `${key}: ${serializeType(value)}`
+      ).join(", ");
+      const ands = [
+        `{${content ? ` ${content} ` : ""}}`,
+
+        ...(type.conditionals?.filter((c) =>
+          c.kind !== "Object" || !c.value.__typename
+        )?.map((c) => `(${serializeType(c)} | {})`) ??
+          []),
+      ];
+
+      const ors = type.conditionals
+        ?.filter((c) => c.kind === "Object" && c.value.__typename)
+        .map((c) => serializeType(c)) ?? [];
+
+      if (type.nonExhaustive && ors.length) ors.push("{}");
+
+      // TODO: Ideally this would be better formatted, but then I need to track
+      // depth
       return `${
         [
-          `{${
-            Object.entries(type.value).map(([key, value]) =>
-              `${key}: ${serializeType(value)}`
-            ).join(", ")
-          }}`,
-          ...(type.conditionals?.map((c) => `(${serializeType(c)} | {})`) ??
-            []),
-        ].filter(Boolean).join(" & ")
+          ands[0] === "{}" ? undefined : ands[0],
+          ors.length > 1 && (ands.length !== 1 || ands[0] !== "{}")
+            ? `(${ors.join("\n| ")})`
+            : ors.join("\n| "),
+          ...ands.slice(1),
+        ].filter(Boolean).join("\n& ")
       }${type.optional ? " | null" : ""}`;
+    }
     case "StringLiteral":
       return `"${type.value}"`;
   }
@@ -550,7 +588,9 @@ ${
           const variables = getOperationVariables(o.definition, references);
 
           return `  ${o.name}: {
-    data: ${data};${
+    data: {
+      ${data.slice(1, -1)}
+    };${
             variables.kind === "Object" && Object.keys(variables.value).length
               ? `
     variables: ${serializeType(variables)};`
