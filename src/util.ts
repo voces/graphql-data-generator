@@ -25,10 +25,5 @@ export const formatCode = async (input: string): Promise<string> => {
   if (output.success) {
     const formattedString = new TextDecoder().decode(output.stdout);
     return formattedString;
-  } else {
-    const errorString = new TextDecoder().decode(output.stderr);
-    throw new Error(
-      `Failed to format the string with deno fmt: ${errorString}`,
-    );
-  }
+  } else return input;
 };

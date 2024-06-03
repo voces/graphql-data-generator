@@ -4,6 +4,7 @@ import {
   FragmentDefinitionNode,
   InputObjectTypeDefinitionNode,
   InputValueDefinitionNode,
+  InterfaceTypeDefinitionNode,
   Kind,
   ListTypeNode,
   NamedTypeNode,
@@ -14,6 +15,8 @@ import {
   ScalarTypeDefinitionNode,
   SelectionNode,
   TypeDefinitionNode,
+  TypeNode,
+  UnionTypeDefinitionNode,
 } from "npm:graphql";
 import { raise } from "./util.ts";
 
@@ -34,7 +37,7 @@ const getType = (
     type: NamedTypeNode | ListTypeNode | NonNullTypeNode;
     optional?: boolean;
     selections?: readonly SelectionNode[];
-    definitions: Record<string, TypeDefinitionNode | undefined>;
+    definitions: Record<string, [TypeDefinitionNode, Set<string>] | undefined>;
     fragments: Record<string, FragmentDefinitionNode | undefined>;
     references: Record<string, [TypeDefinitionNode, boolean] | undefined>;
     includeTypenames: boolean;
@@ -42,6 +45,27 @@ const getType = (
 ): SerializableType => {
   if (type.kind === "NamedType") {
     if (props.selections) {
+      const def = props.definitions[type.name.value];
+      const implementations = def?.[0].kind === "InterfaceTypeDefinition"
+        ? Object.values(props.definitions)
+          .filter((v): v is [TypeDefinitionNode, Set<string>] =>
+            v?.[0].kind === "ObjectTypeDefinition" &&
+              v[0].interfaces?.some((i) =>
+                i.name.value === def[0].name.value
+              ) ||
+            false
+          )
+        : def?.[0].kind === "UnionTypeDefinition"
+        ? Object.values(props.definitions)
+          .filter((v): v is [TypeDefinitionNode, Set<string>] =>
+            "types" in def[0] &&
+              def[0].types?.some((t) =>
+                v && t.name.value === v[0].name.value
+              ) ||
+            false
+          )
+        : [];
+
       const groupedValues = getSelectionsType(
         type.name.value,
         props.selections,
@@ -55,36 +79,28 @@ const getType = (
           union[group] = {};
           Object.defineProperty(union[group], "__typename", {
             enumerable: props.includeTypenames &&
-              props.definitions[group]?.kind === "ObjectTypeDefinition",
+              props.definitions[group]?.[0].kind === "ObjectTypeDefinition",
             value: { kind: "StringLiteral", value: group, optional: false },
           });
         }
         union[group]![name] = value;
+        const def = props.definitions[group];
+        if (def) {
+          if (implementations.length) {
+            for (const implementation of implementations) {
+              implementation[1].add(name);
+            }
+          } else def[1].add(name);
+        }
+
         return union;
       }, {} as Record<string, Record<string, SerializableType>>);
 
       const value = groupedValues[type.name.value] ?? {};
       delete groupedValues[type.name.value];
 
-      let nonExhaustive = false;
-      const def = props.definitions[type.name.value];
-      if (def?.kind === "InterfaceTypeDefinition") {
-        const implementations = Object.values(props.definitions)
-          .filter((v): v is TypeDefinitionNode =>
-            v?.kind === "ObjectTypeDefinition" &&
-              v.interfaces?.some((i) => i.name.value === def.name.value) ||
-            false
-          );
-        nonExhaustive = implementations
-          .some((i) => !(i.name.value in groupedValues));
-      } else if (def?.kind === "UnionTypeDefinition") {
-        const options = Object.values(props.definitions)
-          .filter((v): v is TypeDefinitionNode =>
-            def.types?.some((t) => v && t.name.value === v.name.value) ||
-            false
-          );
-        nonExhaustive = options.some((o) => !(o.name.value in groupedValues));
-      }
+      const nonExhaustive = implementations
+        .some((o) => !(o[0].name.value in groupedValues));
 
       return {
         kind: "Object",
@@ -122,7 +138,7 @@ type SelectionType = [name: string, type: SerializableType, group?: string];
 const getSelectionsType = (
   name: string,
   selections: readonly SelectionNode[],
-  definitions: Record<string, TypeDefinitionNode | undefined>,
+  definitions: Record<string, [TypeDefinitionNode, Set<string>] | undefined>,
   fragments: Record<string, FragmentDefinitionNode | undefined>,
   references: Record<string, [TypeDefinitionNode, boolean] | undefined>,
   includeTypenames: boolean,
@@ -137,10 +153,10 @@ const getSelectionsType = (
           throw new Error(`Could not find type '${selection.name.value}'`);
         }
 
-        switch (selectionType.kind) {
+        switch (selectionType[0].kind) {
           case "ObjectTypeDefinition":
           case "InterfaceTypeDefinition": {
-            const fieldType = selectionType.fields?.find((f) =>
+            const fieldType = selectionType[0].fields?.find((f) =>
               f.name.value === selection.name.value
             );
             if (!fieldType) {
@@ -164,10 +180,12 @@ const getSelectionsType = (
             break;
           }
           case "UnionTypeDefinition": {
-            const types = selectionType.types;
+            const types = selectionType[0].types;
             if (!types) {
               throw new Error(
-                `Expected types to be present on union '${selectionType.name.value}'`,
+                `Expected types to be present on union '${
+                  selectionType[0].name.value
+                }'`,
               );
             }
             selectionTypes.push(
@@ -183,7 +201,9 @@ const getSelectionsType = (
             break;
           }
           default:
-            throw new Error(`Unhandled selection type '${selectionType.kind}'`);
+            throw new Error(
+              `Unhandled selection type '${selectionType[0].kind}'`,
+            );
         }
 
         break;
@@ -240,7 +260,7 @@ const getSelectionsType = (
 
 const getOperationType = (
   operation: OperationDefinitionNode,
-  definitions: Record<string, TypeDefinitionNode | undefined>,
+  definitions: Record<string, [TypeDefinitionNode, Set<string>] | undefined>,
   fragments: Record<string, FragmentDefinitionNode>,
   root: Record<string, FieldDefinitionNode | undefined>,
   references: Record<string, [TypeDefinitionNode, boolean] | undefined>,
@@ -355,7 +375,10 @@ const serializeType = (type: SerializableType): string => {
 const serializeInput = (
   fields: readonly InputValueDefinitionNode[],
   optional: boolean,
-  inputs: Record<string, InputObjectTypeDefinitionNode | undefined>,
+  inputs: Record<
+    string,
+    [InputObjectTypeDefinitionNode, Set<string>] | undefined
+  >,
   references: Record<string, [TypeDefinitionNode, boolean] | undefined>,
 ): SerializableType => ({
   kind: "Object",
@@ -384,7 +407,10 @@ const serializeInput = (
 
 const fillOutInput = (
   input: SerializableType,
-  inputs: Record<string, InputObjectTypeDefinitionNode | undefined>,
+  inputs: Record<
+    string,
+    [InputObjectTypeDefinitionNode, Set<string>] | undefined
+  >,
   references: Record<string, [TypeDefinitionNode, boolean] | undefined>,
 ): SerializableType => {
   switch (input.kind) {
@@ -403,7 +429,7 @@ const fillOutInput = (
       const def = inputs[input.value];
       if (!def) return input;
       return serializeInput(
-        def.fields ?? [],
+        def[0].fields ?? [],
         input.optional,
         inputs,
         references,
@@ -426,6 +452,29 @@ const operationNames: Record<string, { types: string; list: string }> = {
   subscription: { types: "Subscriptions", list: "subscriptions" },
 };
 
+const simpleType = (
+  type: TypeNode,
+  types: Record<string, [TypeDefinitionNode, Set<string>] | undefined>,
+  optional = true,
+): SerializableType => {
+  switch (type.kind) {
+    case Kind.NON_NULL_TYPE:
+      return simpleType(type.type, types, false);
+    case Kind.LIST_TYPE:
+      return {
+        kind: "List",
+        value: simpleType(type.type, types),
+        optional,
+      };
+    case Kind.NAMED_TYPE:
+      return {
+        kind: "Name",
+        value: type.name.value,
+        optional,
+      };
+  }
+};
+
 export const codegen = (
   schema: string,
   files: { path: string; content: string }[],
@@ -435,13 +484,22 @@ export const codegen = (
     includeTypenames?: boolean;
   } = {},
 ) => {
-  const schemaDom = parse(schema);
+  const schemaDoc = parse(schema);
 
   const types: Record<
     string,
-    ObjectTypeDefinitionNode | TypeDefinitionNode | undefined
+    | [
+      | ObjectTypeDefinitionNode
+      | InterfaceTypeDefinitionNode
+      | UnionTypeDefinitionNode,
+      usage: Set<string>,
+    ]
+    | undefined
   > = {};
-  const inputs: Record<string, InputObjectTypeDefinitionNode | undefined> = {};
+  const inputs: Record<
+    string,
+    [InputObjectTypeDefinitionNode, Set<string>] | undefined
+  > = {};
   const fragments: Record<string, FragmentDefinitionNode> = {};
   const references: Record<
     string,
@@ -461,7 +519,7 @@ export const codegen = (
   let mutation: Record<string, FieldDefinitionNode | undefined> = {};
   let subscription: Record<string, FieldDefinitionNode | undefined> = {};
 
-  for (const definition of schemaDom.definitions) {
+  for (const definition of schemaDoc.definitions) {
     switch (definition.kind) {
       case "ObjectTypeDefinition":
         if (definition.name.value === "Query") {
@@ -476,22 +534,22 @@ export const codegen = (
           subscription = Object.fromEntries(
             definition.fields?.map((f) => [f.name.value, f] as const) ?? [],
           );
-        } else types[definition.name.value] = definition;
+        } else types[definition.name.value] = [definition, new Set()];
         break;
       case "InputObjectTypeDefinition":
-        inputs[definition.name.value] = definition;
+        inputs[definition.name.value] = [definition, new Set()];
         break;
       case "InterfaceTypeDefinition":
-        types[definition.name.value] = definition;
+        types[definition.name.value] = [definition, new Set()];
         break;
       case "UnionTypeDefinition": {
         const prev = types[definition.name.value];
-        if (prev?.kind === "UnionTypeDefinition") {
-          types[definition.name.value] = {
-            ...prev,
-            types: [...(prev.types ?? []), ...(definition.types ?? [])],
-          };
-        } else types[definition.name.value] = definition;
+        if (prev?.[0].kind === "UnionTypeDefinition") {
+          types[definition.name.value] = [{
+            ...prev[0],
+            types: [...(prev[0].types ?? []), ...(definition.types ?? [])],
+          }, prev[1]];
+        } else types[definition.name.value] = [definition, new Set()];
         break;
       }
       case "EnumTypeDefinition":
@@ -569,8 +627,9 @@ export const codegen = (
             }
 
             if (handledInputs.has(type.value)) return;
+            handledInputs.add(type.value);
 
-            return `type ${type.value} = ${serializeType(inputType)};`;
+            // return `type ${type.value} = ${serializeType(inputType)};`;
           },
         ).filter(Boolean)
       ),
@@ -606,30 +665,85 @@ ${collection.map((o) => `  ${o.name}: "${o.path}",`).join("\n")}
 };`,
     ]);
 
+  if (handledInputs.size) {
+    serializedTypes.unshift(
+      ...Array.from(handledInputs).map((i) => {
+        const def = inputs[i]?.[0];
+        if (!def) throw new Error(`Could not find input '${i}'`);
+        return `type ${i} = ${
+          serializeType(serializeInput(def.fields ?? [], false, {}, references))
+        };`;
+      }),
+      `export type Inputs = {
+${Array.from(handledInputs).map((i) => `  ${i}: ${i};`).join("\n")}
+};`,
+      `export const inputs = [${
+        Array.from(handledInputs).map((i) => `"${i}"`).join(", ")
+      }] as const;`,
+    );
+  }
+
+  const usedTypes = Object.entries(types)
+    .map((
+      [name, info],
+    ): [string, TypeDefinitionNode, Set<string>] => [name, ...info!])
+    .filter((data): data is [string, ObjectTypeDefinitionNode, Set<string>] =>
+      data[1].kind === "ObjectTypeDefinition" && data[2].size > 0
+    );
+
+  if (usedTypes.length) {
+    serializedTypes.unshift(
+      ...usedTypes.map(([name, type, usage]) =>
+        `type ${name} = {
+${
+          type.fields?.filter((f) => usage.has(f.name.value)).map((v) =>
+            `  ${v.name.value}: ${serializeType(simpleType(v.type, types))};`
+          ).join("\n")
+        }
+};`
+      ),
+      `export type Types = {
+${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
+}`,
+      `export const types = [${
+        usedTypes.map(([name]) => `"${name}"`).join(", ")
+      }] as const;`,
+    );
+  }
+
   const usedReferences = Object.values(references).filter((r) => r[1]).map(
     (r) => r[0],
   );
-  if (usedReferences.length) {
-    serializedTypes.unshift(
-      ...usedReferences.map((r) => {
-        if (r.kind === "ScalarTypeDefinition") {
-          return `type ${r.name.value} = ${
-            scalars[r.name.value] ??
-              raise(`Could not find scalar '${r.name.value}'`)
-          };`;
-        }
-        if (useEnums) {
-          return `enum ${r.name.value} {
+  serializedTypes.unshift(
+    ...usedReferences.map((r) => {
+      if (r.kind === "ScalarTypeDefinition") {
+        return `type ${r.name.value} = ${
+          scalars[r.name.value] ??
+            raise(`Could not find scalar '${r.name.value}'`)
+        };`;
+      }
+      if (useEnums) {
+        return `enum ${r.name.value} {
   ${r.values?.map((r) => r.name.value).join(",\n")}
 }`;
-        } else {
-          return `type ${r.name.value} = ${
-            r.values?.map((r) => `"${r.name.value}"`).join(" | ")
-          };`;
-        }
-      }),
-    );
-  }
+      } else {
+        return `type ${r.name.value} = ${
+          r.values?.map((r) => `"${r.name.value}"`).join(" | ")
+        };`;
+      }
+    }),
+  );
+
+  console.log(
+    Object.fromEntries(
+      [
+        ...Object.entries(types).map(([name, info]) => [name, info?.[1]]),
+        ...Object.entries(inputs).map((
+          [name],
+        ) => [name, handledInputs.has(name)]),
+      ],
+    ),
+  );
 
   return serializedTypes.join("\n\n");
 };
