@@ -1,4 +1,5 @@
 export type EmptyObject = Omit<{ foo: "string" }, "foo">;
+// export type EmptyObject = Record<string, never>;
 
 type ArrayPatch<T, Root = never> =
   | Patch<T>[]
@@ -9,12 +10,19 @@ type ArrayPatch<T, Root = never> =
     /** Patch the last value in the array. */
     last?: Patch<T, Root>;
   });
-type ObjectPatch<T, Root = never> = {
+export type ObjectPatch<T, Root = never> = {
   [K in keyof T]?:
     | (T[K] extends object | null | undefined ? Patch<T[K], Root> : T[K])
+    // | (Root extends never
+    //   ? () => T[K] extends object | null | undefined ? Patch<T[K], Root> : T[K]
+    //   : (
+    //     previous: Root,
+    //   ) => T[K] extends object | null | undefined ? Patch<T[K], Root> : T[K]);
     | ((
-      data: Root extends never ? T : Root,
-    ) => T[K] extends object | null | undefined ? Patch<T[K], Root> : T[K]);
+      // This is resolving as never instead of T...
+      previous: Root extends never ? T : Root,
+    ) => T[K] extends object | null | undefined ? Patch<T[K], Root>
+      : T[K] | undefined | null);
 };
 export type Patch<T, Root = never> = T extends (infer U)[] ? ArrayPatch<U, Root>
   : ObjectPatch<T, Root>;
@@ -37,14 +45,20 @@ type DeepPartial<T> = T extends (infer U)[] ? DeepPartial<U>[]
       : T[K];
   };
 
-export type Options<Data = unknown, Variables = unknown> = {
+export type Options<
+  Data = unknown,
+  Variables = Record<string, unknown> | never,
+> = {
   data?: ObjectPatch<Data>;
   variables?: ObjectPatch<Variables>;
   refetch?: boolean;
   optional?: boolean;
 };
 
-export type OperationMock<Data = unknown, Variables = unknown> = {
+export type OperationMock<
+  Data = unknown,
+  Variables = Record<string, unknown> | never,
+> = {
   request: { query: string; variables?: Variables };
   result: { data?: Data; errors?: unknown[] };
 };
@@ -143,20 +157,24 @@ type OperationBuilderWithMock<Data, Variables, Transforms> =
   & OperationBuilder<Data, Variables, Transforms>
   & OperationMock<Data, Variables>;
 
-export type ObjectBuilder<T, Transforms extends Record<string, ()>> =
-  & ((data?: ObjectPatch<T>) => T & ObjectBuilder<T, Transforms>)
+export type ObjectTransforms<T, Transforms> =
   & {
     [Transform in keyof Transforms]: Transforms[Transform] extends // deno-lint-ignore no-explicit-any
     (...args: any[]) => any ? (
-        ...params: Shift<Parameters<Transforms[Transform]>>
-      ) => T & ObjectBuilder<T, Transforms>
-      : Transforms[Transform];
-    // : () => T & ObjectBuilder<T, Transforms>;
+        ...args: Shift<Parameters<Transforms[Transform]>>
+      ) => T & ObjectTransforms<T, Transforms>
+      : () => T & ObjectTransforms<T, Transforms>;
   }
   & {
-    patch: (patch: ObjectPatch<T>) => T & ObjectBuilder<T, Transforms>;
-    clone: (patch: ObjectPatch<T>) => T & ObjectBuilder<T, Transforms>;
-  }
+    patch: (
+      patch: ObjectPatch<T, T> | ((prev: T) => ObjectPatch<T, T>),
+    ) => T & ObjectTransforms<T, Transforms>;
+    // clone: (patch: ObjectPatch<T, T>) => T & ObjectTransforms<T, Transforms>;
+  };
+
+export type ObjectBuilder<T, Transforms> =
+  & ((data?: ObjectPatch<T, T>) => T & ObjectBuilder<T, Transforms>)
+  & ObjectTransforms<T, Transforms>
   & Collection<T, Transforms>;
 
 type CapitalizeFirst<S extends string> = S extends `${infer F}${infer R}`
@@ -173,6 +191,37 @@ type MapObjectsToBuilders<T, Transforms> = {
     K extends keyof Transforms ? Transforms[K] : EmptyObject
   >;
 };
+
+export type MapObjectsToTransforms<
+  Objects extends Record<string, Record<string, unknown>>,
+> = {
+  [Object in keyof Objects]?: Record<
+    string,
+    | DefaultObjectTransform<Objects[Object], Objects[Object]>
+    | ((
+      object: DeepPartial<Objects[Object]>,
+      // deno-lint-ignore no-explicit-any
+      ...args: any[]
+    ) => ObjectPatch<Objects[Object]>)
+  >;
+};
+
+type InnerMapOperationsToTransforms<Operations> = {
+  [Operation in keyof Operations]?: Record<
+    string,
+    InferOperationTransforms<Operations[Operation]>
+  >;
+};
+
+export type MapOperationsToTransforms<
+  Queries,
+  Mutations,
+  Subscriptions,
+  Types,
+  Inputs,
+> = InnerMapOperationsToTransforms<
+  ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs>
+>;
 
 type MapOperationsToBuilders<T, Transforms> = {
   [K in keyof T]: OperationBuilder<
@@ -275,7 +324,7 @@ export type Build<
   Subscriptions,
   Types,
   Inputs,
-  Transforms extends Record<keyof ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs>, unknown>,
+  Transforms,
 > =
   & MapObjectsToBuilders<Types & Inputs, Transforms>
   & MapOperationsToBuilders<

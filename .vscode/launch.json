@@ -6,9 +6,24 @@
   "configurations": [
     {
       "request": "launch",
-      "name": "Launch Program",
+      "name": "Debug generate",
       "type": "node",
       "program": "${workspaceFolder}/examples/generate.ts",
+      "cwd": "${workspaceFolder}",
+      "env": {},
+      "runtimeExecutable": "/Users/robertcoe/.deno/bin/deno",
+      "runtimeArgs": [
+        "run",
+        "--inspect-wait",
+        "--allow-all"
+      ],
+      "attachSimplePort": 9229
+    },
+    {
+      "request": "launch",
+      "name": "Debug board",
+      "type": "node",
+      "program": "${workspaceFolder}/examples/board/build.ts",
       "cwd": "${workspaceFolder}",
       "env": {},
       "runtimeExecutable": "/Users/robertcoe/.deno/bin/deno",

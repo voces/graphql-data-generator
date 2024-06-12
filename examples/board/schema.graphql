@@ -63,7 +63,7 @@ type Query {
   users: [User!]!
   posts: [Post!]!
   search(term: String!): [SearchResult!]!
-  node(id: ID!): Node
+  node(id: ID!): Node!
 }
 
 # Mutation type
