@@ -1,31 +1,32 @@
 export type EmptyObject = Omit<{ foo: "string" }, "foo">;
 // export type EmptyObject = Record<string, never>;
 
-type ArrayPatch<T, Root = never> =
-  | Patch<T>[]
-  | ({ [K in number]?: Patch<T, Root> } & {
+type ArrayPatch<T, F extends T, Ancestors extends unknown[]> =
+  | Patch<T, F, Ancestors>[]
+  | ({ [K in number]?: Patch<T, F, Ancestors> } & {
     length?: number;
     /** Append a value to the array. */
-    next?: Patch<T, Root>;
+    next?: Patch<T, F, Ancestors>;
     /** Patch the last value in the array. */
-    last?: Patch<T, Root>;
+    last?: Patch<T, F, Ancestors>;
   });
-export type ObjectPatch<T, Root = never> = {
+type ObjectPatch<T, F extends T = T, Ancestors extends unknown[] = []> = {
   [K in keyof T]?:
-    | (T[K] extends object | null | undefined ? Patch<T[K], Root> : T[K])
-    // | (Root extends never
-    //   ? () => T[K] extends object | null | undefined ? Patch<T[K], Root> : T[K]
-    //   : (
-    //     previous: Root,
-    //   ) => T[K] extends object | null | undefined ? Patch<T[K], Root> : T[K]);
+    | (T[K] extends object | null | undefined
+      ? Patch<T[K], F[K], [F, ...Ancestors]>
+      : T[K])
     | ((
-      // This is resolving as never instead of T...
-      previous: Root extends never ? T : Root,
-    ) => T[K] extends object | null | undefined ? Patch<T[K], Root>
+      previous: F,
+      ...ancestors: Ancestors
+    ) => T[K] extends object | null | undefined
+      ? Patch<T[K], F[K], [F, ...Ancestors]>
       : T[K] | undefined | null);
 };
-export type Patch<T, Root = never> = T extends (infer U)[] ? ArrayPatch<U, Root>
-  : ObjectPatch<T, Root>;
+export type Patch<T, F extends T = T, Ancestors extends unknown[] = []> =
+  T extends (infer U)[]
+    ? F extends (infer V)[] ? V extends U ? ArrayPatch<U, V, Ancestors> : never
+    : never
+    : ObjectPatch<T, F, Ancestors>;
 
 // Very similar to object patch, except without array helpers
 type DefaultObjectTransformSwitch<T, U> = T extends (infer G)[]
@@ -35,15 +36,9 @@ type DefaultObjectTransform<T, U = T> = {
   [K in keyof T]?: T[K] extends object //| null | undefined ?
     ?
       | DefaultObjectTransformSwitch<T[K], U>
-      | ((host: DeepPartial<U>) => DefaultObjectTransformSwitch<T[K], U>)
-    : T[K] | ((host: DeepPartial<U>) => T[K]);
+      | ((host: U) => DefaultObjectTransformSwitch<T[K], U>)
+    : T[K] | ((host: U) => T[K]);
 };
-
-type DeepPartial<T> = T extends (infer U)[] ? DeepPartial<U>[]
-  : {
-    [K in keyof T]?: T[K] extends object | null | undefined ? DeepPartial<T[K]>
-      : T[K];
-  };
 
 export type Options<
   Data = unknown,
@@ -56,7 +51,7 @@ export type Options<
 };
 
 export type OperationMock<
-  Data = unknown,
+  Data extends Record<string, unknown> = Record<string, unknown>,
   Variables = Record<string, unknown> | never,
 > = {
   request: { query: string; variables?: Variables };
@@ -80,7 +75,7 @@ type Collection<T, Transforms> = {
 };
 
 export type OperationBuilder<
-  Data = unknown,
+  Data extends Record<string, unknown> = Record<string, unknown>,
   Variables = unknown,
   Transforms = unknown,
 > =
@@ -153,11 +148,15 @@ export type OperationBuilder<
   };
 // & Collection<OperationBuilderWithMock<Data, Variables, Transforms>>;
 
-type OperationBuilderWithMock<Data, Variables, Transforms> =
+type OperationBuilderWithMock<
+  Data extends Record<string, unknown>,
+  Variables,
+  Transforms,
+> =
   & OperationBuilder<Data, Variables, Transforms>
   & OperationMock<Data, Variables>;
 
-export type ObjectTransforms<T, Transforms> =
+type ObjectTransforms<T, Transforms> =
   & {
     [Transform in keyof Transforms]: Transforms[Transform] extends // deno-lint-ignore no-explicit-any
     (...args: any[]) => any ? (
@@ -167,13 +166,13 @@ export type ObjectTransforms<T, Transforms> =
   }
   & {
     patch: (
-      patch: ObjectPatch<T, T> | ((prev: T) => ObjectPatch<T, T>),
+      patch: ObjectPatch<T> | ((prev: T) => ObjectPatch<T>),
     ) => T & ObjectTransforms<T, Transforms>;
     // clone: (patch: ObjectPatch<T, T>) => T & ObjectTransforms<T, Transforms>;
   };
 
 export type ObjectBuilder<T, Transforms> =
-  & ((data?: ObjectPatch<T, T>) => T & ObjectBuilder<T, Transforms>)
+  & ((data?: ObjectPatch<T>) => T & ObjectBuilder<T, Transforms>)
   & ObjectTransforms<T, Transforms>
   & Collection<T, Transforms>;
 
@@ -199,17 +198,17 @@ export type MapObjectsToTransforms<
     string,
     | DefaultObjectTransform<Objects[Object], Objects[Object]>
     | ((
-      object: DeepPartial<Objects[Object]>,
+      prev: Objects[Object],
       // deno-lint-ignore no-explicit-any
       ...args: any[]
     ) => ObjectPatch<Objects[Object]>)
   >;
 };
 
-type InnerMapOperationsToTransforms<Operations> = {
+type InnerMapOperationsToTransforms<Operations, Types> = {
   [Operation in keyof Operations]?: Record<
     string,
-    InferOperationTransforms<Operations[Operation]>
+    InferOperationTransforms<Operations[Operation], Types>
   >;
 };
 
@@ -220,12 +219,15 @@ export type MapOperationsToTransforms<
   Types,
   Inputs,
 > = InnerMapOperationsToTransforms<
-  ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs>
+  ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs>,
+  Types
 >;
 
 type MapOperationsToBuilders<T, Transforms> = {
   [K in keyof T]: OperationBuilder<
-    T[K] extends { data: infer U } ? U : unknown,
+    T[K] extends { data: infer U }
+      ? U extends Record<string, unknown> ? U : Record<string, unknown>
+      : Record<string, unknown>,
     T[K] extends { variables: infer U } ? U : unknown,
     K extends keyof Transforms ? Transforms[K] : EmptyObject
   >;
@@ -264,59 +266,39 @@ type ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs> =
     Inputs
   >;
 
-type DefaultOperationTransform<T> = {
-  // Should the Root of these be partial or just data and variables?
-  data?: T extends { data: infer U } ? ObjectPatch<U, DeepPartial<T>> : never;
-  variables?: T extends { variables: infer U } ? ObjectPatch<U, DeepPartial<T>>
+type FullSchemaType<T, Types> = "__typename" extends keyof T
+  ? T["__typename"] extends keyof Types ? Types[T["__typename"]] : T
+  : T extends object ? { [K in keyof T]: FullSchemaType<T[K], Types> }
+  : T;
+
+type DefaultOperationTransform<T, Types> = {
+  data?: T extends { data: infer D } ? ObjectPatch<
+      D,
+      FullSchemaType<D, Types> extends D ? FullSchemaType<D, Types> : D,
+      T extends { variables: infer V } ? [V]
+        : []
+    >
+    : never;
+  variables?: T extends { variables: infer V }
+    ? ObjectPatch<V, V, T extends { data: infer D } ? [D] : []>
     : never;
 };
 
-type OperationTransform<T> = (
+type OperationTransform<T, Types> = (
   b: {
     data: T extends { data: infer U } ? U : never;
     variables: T extends { variables: infer U } ? U : never;
   },
   // deno-lint-ignore no-explicit-any
   ...args: any[]
-) => ObjectPatch<T>;
+) => ObjectPatch<
+  T,
+  FullSchemaType<T, Types> extends T ? FullSchemaType<T, Types> : T
+>;
 
-type InferOperationTransforms<T> =
-  | DefaultOperationTransform<T>
-  | OperationTransform<T>;
-
-export type InferTransforms<Queries, Mutations, Subscriptions, Types, Inputs> =
-  & {
-    [
-      O in keyof ResolveConflicts<
-        Queries,
-        Mutations,
-        Subscriptions,
-        Types,
-        Inputs
-      >
-    ]?: {
-      [T in string]: InferOperationTransforms<
-        ResolveConflicts<
-          Queries,
-          Mutations,
-          Subscriptions,
-          Types,
-          Inputs
-        >[O]
-      >;
-    };
-  }
-  & {
-    [O in keyof (Types & Inputs)]?: {
-      [T in string]:
-        | DefaultObjectTransform<(Types & Inputs)[O]>
-        | ((
-          obj: (Types & Inputs)[O],
-          // deno-lint-ignore no-explicit-any
-          ...args: any[]
-        ) => ObjectPatch<(Types & Inputs)[O]>);
-    };
-  };
+type InferOperationTransforms<T, Types> =
+  | DefaultOperationTransform<T, Types>
+  | OperationTransform<T, Types>;
 
 export type Build<
   Queries,

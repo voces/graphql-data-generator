@@ -2,14 +2,9 @@ import {
   DefinitionNode,
   DocumentNode,
   EnumTypeDefinitionNode,
-  FieldDefinitionNode,
-  InputObjectTypeDefinitionNode,
   ObjectTypeDefinitionNode,
   OperationDefinitionNode,
   parse,
-  ScalarTypeDefinitionNode,
-  SelectionSetNode,
-  UnionTypeDefinitionNode,
 } from "npm:graphql";
 
 // If a collision is detected:
@@ -20,13 +15,13 @@ import {
   EmptyObject,
   MapObjectsToTransforms,
   MapOperationsToTransforms,
-  ObjectPatch,
+  ObjectBuilder,
   OperationBuilder,
   OperationMock,
   Options,
+  Patch,
 } from "./types.ts";
 import { raise } from "./util.ts";
-import { ObjectBuilder } from "./types.ts";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object";
@@ -42,16 +37,23 @@ const getOperationSchema = (path: string) => {
   return operationSchemas[path] = { query, node };
 };
 
-const buildOperation = <
-  T extends Build<unknown, unknown, unknown, unknown, unknown, unknown>,
->(
+const buildOperation = (
   name: string,
   path: string,
   kind: "query" | "mutation" | "subscription",
   names: string[],
   schema: readonly DefinitionNode[],
   transforms: UntypedTransforms,
-  build: T,
+  build: Record<
+    string,
+    (
+      overrides?: unknown,
+      current?: unknown,
+      root?: unknown,
+      field?: string,
+      ancestors?: unknown[],
+    ) => unknown
+  >,
   scalars: {
     [name: string]: ((object: string, field: string) => unknown) | unknown;
   },
@@ -60,13 +62,44 @@ const buildOperation = <
     name = `${kind}${name[0].toUpperCase()}${name.slice(1)}`;
   }
 
-  const builder = (options?: Options) => {
+  const getOperationTransforms = (mock: OperationMock) => {
+    const operationTransforms: PropertyDescriptorMap = {
+      patch: {
+        // configurable: true,
+        value: (
+          patch:
+            | Record<string, unknown>
+            | ((prev: Record<string, unknown>) => Record<string, unknown>),
+        ) => builder(typeof patch === "function" ? patch(mock) : patch, mock),
+      },
+    };
+
+    for (const transformName in transforms[name] ?? {}) {
+      if (transformName in mock) continue;
+      const transform = transforms[name]![transformName];
+      operationTransforms[transformName] = {
+        // configurable: true,
+        value: (...args: unknown[]) =>
+          builder(
+            typeof transform === "function"
+              ? transform(mock, ...args)
+              : transform,
+            mock,
+          ),
+      };
+    }
+
+    return operationTransforms;
+  };
+
+  const builder = (options?: Options, mock?: OperationMock) => {
     const { query, node } = getOperationSchema(path);
 
-    const mock: OperationMock = {
-      request: { query },
-      result: {},
-    };
+    // if (!mock) mock = { request: { query }, result: {} };
+    // else
+    const prevVariables = mock?.request.variables;
+    mock = { request: { query }, result: { ...mock?.result } };
+    if (prevVariables) mock.request.variables = prevVariables;
 
     const operation = node.definitions.find(
       (d): d is OperationDefinitionNode => d.kind === "OperationDefinition",
@@ -93,21 +126,39 @@ const buildOperation = <
           typeof variablesOverride[name] === "function"
             ? (variablesOverride[name] as () => unknown)()
             : variablesOverride[name];
-      } else if (name in variablesDefault) {
+        if (
+          mock.request.variables[name] != null ||
+          variable.type.kind !== "NonNullType"
+        ) continue;
+      }
+
+      if (
+        mock.request.variables && name in mock.request.variables &&
+        (mock.request.variables[name] != null ||
+          variable.type.kind !== "NonNullType")
+      ) continue;
+
+      if (name in variablesDefault) {
         const override: unknown =
           variablesDefault[name as keyof typeof variablesDefault];
         if (!mock.request.variables) mock.request.variables = {};
         mock.request.variables[name] = typeof override === "function"
           ? override()
           : override;
-      } else if (variable.type.kind === "NonNullType") {
+        if (
+          mock.request.variables[name] != null ||
+          variable.type.kind !== "NonNullType"
+        ) continue;
+      }
+
+      if (variable.type.kind === "NonNullType") {
         if (!mock.request.variables) mock.request.variables = {};
         if (variable.type.type.kind === "ListType") {
           mock.request.variables[name] = [];
         } else {
           // This is mostly a copy of the obj builder...
           const fieldType = variable.type.type;
-          const typeBuilder = build[name as keyof typeof build];
+          const typeBuilder = build[fieldType.name.value];
           if (typeof typeBuilder === "function") {
             mock.request.variables[name] = typeBuilder(
               {},
@@ -144,177 +195,12 @@ const buildOperation = <
       n.kind === "ObjectTypeDefinition" && n.name.value.toLowerCase() === kind
     );
     if (!rootSchema) throw new Error(`Could not find ${kind} in schema`);
-    // const rootSchemaMap = Object.fromEntries(
-    //   rootSchema.fields?.map((f) => [f.name.value, f]) ?? [],
-    // );
-    // const hydrateSelectionSet = (
-    //   isRoot: boolean,
-    //   selectionSet: SelectionSetNode,
-    //   overrides: Record<string, unknown>,
-    //   obj: Record<string, unknown>,
-    //   root: Record<string, unknown>,
-    //   refMap: Record<string, FieldDefinitionNode>,
-    // ) => {
-    //   for (const selection of selectionSet.selections) {
-    //     if (selection.kind === "Field") {
-    //       const key = selection.alias?.value ?? selection.name.value;
-    //       if (key in overrides) {
-    //         const override = overrides[key];
-    //         const value = typeof override === "function"
-    //           ? override(mock.request.variables, root) // Should pass variables then data?
-    //           : override;
-    //         if (!value || typeof value !== "object") {
-    //           obj[key] = value;
-    //           continue;
-    //         }
-    //         const next = {};
-    //         obj[key] = next;
-    //         hydrateSelectionSet(
-    //           false,
-    //           selection.selectionSet!,
-    //           value as Record<string, unknown>,
-    //           next,
-    //           root,
-    //           rootSchemaMap,
-    //         );
-    //         continue;
-    //       }
-    //       if (key in defaults) {
-    //         const override: unknown = defaults[key as keyof typeof defaults];
-    //         const value = typeof override === "function"
-    //           ? override(mock.request.variables, root) // Should pass variables then data?
-    //           : override;
-    //         if (!value || typeof value !== "object") {
-    //           obj[key] = value;
-    //           continue;
-    //         }
-    //         const next = {};
-    //         obj[key] = next;
-    //         hydrateSelectionSet(
-    //           false,
-    //           selection.selectionSet!,
-    //           value as Record<string, unknown>,
-    //           next,
-    //           root,
-    //           rootSchemaMap,
-    //         );
-    //         continue;
-    //       }
-    //       const type = refMap[selection.name.value];
-    //       // const type = isRoot
-    //       //   ? rootSchema?.fields?.find((f) =>
-    //       //     f.name.value === selection.name.value
-    //       //   )
-    //       //   : schema.find((
-    //       //     n,
-    //       //   ): n is
-    //       //     | ScalarTypeDefinitionNode
-    //       //     | EnumTypeDefinitionNode
-    //       //     | UnionTypeDefinitionNode
-    //       //     | ObjectTypeDefinitionNode =>
-    //       //     // Interface?
-    //       //     n.kind === "ScalarTypeDefinition" ||
-    //       //       n.kind === "EnumTypeDefinition" ||
-    //       //       n.kind === "UnionTypeDefinition" ||
-    //       //       n.kind === "ObjectTypeDefinition"
-    //       //       ? n.name.value === selection.name.value
-    //       //       : false
-    //       //   );
-    //       if (!type) {
-    //         throw new Error(
-    //           `Could not find type information for '${selection.name.value}'`,
-    //         );
-    //       }
-    //       if (type.kind === "FieldDefinition") {
-    //         if (type.type.kind !== "NonNullType") {
-    //           obj[key] = null;
-    //           continue;
-    //         }
-    //         if (type.type.type.kind === "ListType") {
-    //           obj[key] = [];
-    //           continue;
-    //         }
 
-    //         const typeName = overrides.__typename as string ?? obj.__typename ??
-    //           type.type.type.name.value;
-    //         const schemaType = schema.find((n) =>
-    //           "name" in n && n.name?.value === typeName
-    //         );
-    //         if (!schemaType) {
-    //           if (typeName in scalars) {
-    //             const scalarType = scalars[typeName];
-    //             obj[key] = typeof scalarType === "function"
-    //               ? scalarType() // Pass typename
-    //               : scalarType;
-    //             continue;
-    //           }
-    //           console.log(scalars);
-    //           throw new Error(`Type '${typeName}' not found in schema`);
-    //         }
-
-    //         const next = {};
-
-    //         const typeDefault = transforms[typeName]?.default;
-    //         const typeDefaults = typeof typeDefault === "function"
-    //           ? typeDefault(next)
-    //           : typeDefault;
-
-    //         console.log("ref?", key, typeName, schemaType?.kind, typeDefaults);
-
-    //         obj[key] = next;
-    //         // const ref = schema[type.type.type.name.value];
-    //         // if (type.type.type.name)
-    //         hydrateSelectionSet(
-    //           false,
-    //           selection.selectionSet!,
-    //           typeDefaults ?? {},
-    //           next,
-    //           root,
-    //           rootSchemaMap,
-    //         );
-    //         continue;
-    //         // obj[key] = "FOO";
-    //       }
-    //       console.warn(`Unhandled type ${type.kind}`);
-    //       console.log("type", Deno.inspect(type, { depth: 1 }));
-    //       continue;
-    //     }
-    //     if (selection.kind === "InlineFragment") {
-    //       const desiredType = obj.__typename ??
-    //         (typeof defaults.__typename === "function"
-    //           ? defaults.__typename()
-    //           : defaults.__typename);
-    //       const inlineType = selection.typeCondition?.name.value;
-    //       if (!desiredType || desiredType === inlineType) {
-    //         obj.__typename = inlineType;
-    //         hydrateSelectionSet(
-    //           false,
-    //           selection.selectionSet,
-    //           overrides,
-    //           obj,
-    //           root,
-    //           inlineType
-    //             ? Object.fromEntries(
-    //               schema.find((n): n is ObjectTypeDefinitionNode =>
-    //                 "name" in n && "fields" in n
-    //                   ? n.name?.value === inlineType
-    //                   : false
-    //               )?.fields?.map((f) => [f.name.value, f]) ?? [],
-    //             )
-    //             : refMap,
-    //         );
-    //       }
-    //       continue;
-    //     }
-    //     throw new Error(`Unhandled selection kind '${selection.kind}'`);
-    //   }
-    // };
-
-    const root: Record<string, unknown> = {};
+    const root: Record<string, unknown> = mock.result.data ?? {};
     mock.result.data = root;
 
     const rawData = options?.data;
-    const dataOverride: ObjectPatch<Record<string, unknown>> =
+    const dataOverride: Patch<Record<string, unknown>> =
       typeof rawData === "function"
         ? rawData(variablesOverride)
         : rawData ?? {};
@@ -337,7 +223,7 @@ const buildOperation = <
       }
 
       if (type.kind !== "NonNullType") {
-        if (!(key in dataOverride) && !(key in dataDefault)) {
+        if (!(key in dataOverride) && !(key in dataDefault) && !(key in root)) {
           root[key] = null;
           continue;
         }
@@ -347,7 +233,7 @@ const buildOperation = <
       // const override = key in dataOverride ? dataOverride[key] : defaults[key];
 
       if (type.kind === "ListType") {
-        root[key] = []; // TODO
+        root[key] = root[key] ?? []; // TODO
         continue;
       }
 
@@ -389,30 +275,27 @@ const buildOperation = <
           throw new Error(`Unhandled kind ${schemaType.kind}`);
         })();
 
-      console.log(key, typename, dataOverride[key], dataDefault[key]);
-
-      root[key] = build[typename](dataOverride[key] ?? dataDefault[key]);
-
-      // console.log(build, type.kind === "NamedType" ? type.name.value : "???");
-      // root[key] = type.kind === "NamedType"
-      //   ? build[type.name.value as keyof typeof build](override)
-      //   : []; // TODO
-
-      // const typename = data[key as keyof typeof data].__typename ??
-      //   defaults[key].__typename;
+      root[key] = build[typename](
+        dataOverride[key] ?? dataDefault[key],
+        root[key],
+        undefined,
+        undefined,
+        [root, mock.request.variables],
+      );
     }
 
-    // hydrateSelectionSet(
-    //   true,
-    //   operation.selectionSet,
-    //   options?.data ?? {},
-    //   root,
-    //   root,
-    //   rootSchemaMap,
-    // );
+    Object.defineProperties(mock, getOperationTransforms(mock));
 
     return mock;
   };
+
+  Object.defineProperties(
+    builder,
+    getOperationTransforms({
+      request: { query: "TO BE REPLACED" },
+      result: {},
+    }),
+  );
 
   return [name, builder as OperationBuilder];
 };
@@ -439,13 +322,16 @@ const buildObject = (
       current?: unknown,
       root?: unknown,
       field?: string,
+      ancestors?: unknown[],
     ) => unknown
   >,
   transforms: UntypedTransforms,
 ): ObjectBuilder<unknown, unknown> => {
   const type =
     schema.find((d): d is ObjectTypeDefinitionNode =>
-      d.kind === "ObjectTypeDefinition" && d.name.value === name
+      (d.kind === "ObjectTypeDefinition" ||
+        d.kind === "InputObjectTypeDefinition") &&
+      d.name.value === name
     ) ?? raise(`Could not find object type definition '${name}'`);
 
   const arr: Record<string, unknown>[] = [];
@@ -453,6 +339,7 @@ const buildObject = (
   const getObjTransforms = (obj: Record<string, unknown>) => {
     const objTransforms: PropertyDescriptorMap = {
       patch: {
+        configurable: true,
         value: (
           patch:
             | Record<string, unknown>
@@ -484,10 +371,13 @@ const buildObject = (
     obj: Record<string, unknown> = {},
     root?: unknown,
     field?: string,
+    ancestors: unknown[] = [],
   ) => {
     if (!obj || typeof obj !== "object") obj = {};
     if (!root) root = obj;
     else if (field) root = { ...root, [field]: obj };
+
+    obj.__typename = name;
 
     const defaultTransform = transforms[name]?.default ?? {};
     const defaults = typeof defaultTransform === "function"
@@ -497,7 +387,7 @@ const buildObject = (
       if (overrides && field.name.value in overrides) {
         const override = overrides[field.name.value];
         const value = typeof override === "function"
-          ? override(root)
+          ? override(root, ...ancestors)
           : override;
 
         if (isObject(value)) {
@@ -510,6 +400,7 @@ const buildObject = (
               obj[field.name.value],
               root,
               field.name.value,
+              [obj, ...ancestors],
             );
           } else {
             console.warn(
@@ -526,7 +417,7 @@ const buildObject = (
         // do nothing; it's already set!
       } else if (field.name.value in defaults) {
         const d = defaults[field.name.value];
-        const value = typeof d === "function" ? d(root) : d;
+        const value = typeof d === "function" ? d(root, ...ancestors) : d;
         if (isObject(value)) {
           let fieldType = field.type;
           while (fieldType.kind !== "NamedType") fieldType = fieldType.type;
@@ -538,6 +429,7 @@ const buildObject = (
                 obj[field.name.value],
                 value,
                 overrides ? overrides[field.name.value] : {},
+                [obj, ...ancestors],
               ),
             );
           } else obj[field.name.value] = value;
@@ -555,6 +447,7 @@ const buildObject = (
             obj[field.name.value],
             obj,
             field.name.value,
+            [obj, ...ancestors],
           );
           continue;
         }
@@ -673,6 +566,18 @@ export const init = <
     ) as typeof build[K];
   }
 
+  for (const input of inputs) {
+    type K = keyof typeof build;
+    build[input as K] = buildObject(
+      input,
+      doc.definitions,
+      scalars,
+      // deno-lint-ignore no-explicit-any
+      build as any,
+      transforms as UntypedTransforms,
+    ) as typeof build[K];
+  }
+
   {
     const nonQueryNames: string[] = [
       ...Object.keys(mutations),
@@ -688,7 +593,32 @@ export const init = <
         nonQueryNames,
         doc.definitions,
         transforms as UntypedTransforms,
-        build,
+        // deno-lint-ignore no-explicit-any
+        build as any,
+        scalars,
+      );
+      type K = keyof typeof build;
+      build[key as K] = value as typeof build[K];
+    }
+  }
+
+  {
+    const nonMutationNames: string[] = [
+      ...Object.keys(queries),
+      ...Object.keys(subscriptions),
+      ...types,
+      ...inputs,
+    ];
+    for (const mutation in mutations) {
+      const [key, value] = buildOperation(
+        mutation,
+        mutations[mutation],
+        "mutation",
+        nonMutationNames,
+        doc.definitions,
+        transforms as UntypedTransforms,
+        // deno-lint-ignore no-explicit-any
+        build as any,
         scalars,
       );
       type K = keyof typeof build;

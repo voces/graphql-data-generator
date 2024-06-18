@@ -695,7 +695,7 @@ ${Array.from(handledInputs).map((i) => `  ${i}: ${i};`).join("\n")}
     serializedTypes.unshift(
       ...usedTypes.map(([name, type, usage]) =>
         `type ${name} = {
-${
+${includeTypenames ? `__typename: "${name}";\n` : ""}${
           type.fields?.filter((f) => usage.has(f.name.value)).map((v) =>
             `  ${v.name.value}: ${serializeType(simpleType(v.type, types))};`
           ).join("\n")
