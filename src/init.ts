@@ -95,8 +95,6 @@ const buildOperation = (
   const builder = (options?: Options, mock?: OperationMock) => {
     const { query, node } = getOperationSchema(path);
 
-    // if (!mock) mock = { request: { query }, result: {} };
-    // else
     const prevVariables = mock?.request.variables;
     mock = { request: { query }, result: { ...mock?.result } };
     if (prevVariables) mock.request.variables = prevVariables;
@@ -109,10 +107,16 @@ const buildOperation = (
     }
 
     const defaultGenerator = transforms[name]?.default;
-    const defaults =
-      (typeof defaultGenerator === "function"
-        ? defaultGenerator()
-        : defaultGenerator) ?? {};
+    const defaults = (typeof defaultGenerator === "function"
+      ? defaultGenerator(
+        new Proxy(mock, {
+          get: (target, p) => {
+            console.log("trap", target, p);
+            return target[p as keyof typeof target];
+          },
+        }),
+      )
+      : defaultGenerator) ?? {};
     const dataDefault = (defaults.data as Record<string, unknown>) ?? {};
     const variablesDefault = (defaults.variables as Record<string, unknown>) ??
       {};
@@ -276,11 +280,12 @@ const buildOperation = (
         })();
 
       root[key] = build[typename](
+        // TOOD: merge?
         dataOverride[key] ?? dataDefault[key],
         root[key],
         undefined,
         undefined,
-        [root, mock.request.variables],
+        [mock.request.variables],
       );
     }
 
@@ -371,7 +376,7 @@ const buildObject = (
     obj: Record<string, unknown> = {},
     root?: unknown,
     field?: string,
-    ancestors: unknown[] = [],
+    args: unknown[] = [],
   ) => {
     if (!obj || typeof obj !== "object") obj = {};
     if (!root) root = obj;
@@ -387,7 +392,7 @@ const buildObject = (
       if (overrides && field.name.value in overrides) {
         const override = overrides[field.name.value];
         const value = typeof override === "function"
-          ? override(root, ...ancestors)
+          ? override(root, ...args)
           : override;
 
         if (isObject(value)) {
@@ -400,7 +405,7 @@ const buildObject = (
               obj[field.name.value],
               root,
               field.name.value,
-              [obj, ...ancestors],
+              args,
             );
           } else {
             console.warn(
@@ -417,7 +422,7 @@ const buildObject = (
         // do nothing; it's already set!
       } else if (field.name.value in defaults) {
         const d = defaults[field.name.value];
-        const value = typeof d === "function" ? d(root, ...ancestors) : d;
+        const value = typeof d === "function" ? d(root, ...args) : d;
         if (isObject(value)) {
           let fieldType = field.type;
           while (fieldType.kind !== "NamedType") fieldType = fieldType.type;
@@ -429,7 +434,7 @@ const buildObject = (
                 obj[field.name.value],
                 value,
                 overrides ? overrides[field.name.value] : {},
-                [obj, ...ancestors],
+                args,
               ),
             );
           } else obj[field.name.value] = value;
@@ -447,7 +452,7 @@ const buildObject = (
             obj[field.name.value],
             obj,
             field.name.value,
-            [obj, ...ancestors],
+            args,
           );
           continue;
         }
@@ -475,6 +480,8 @@ const buildObject = (
 
     Object.defineProperties(obj, getObjTransforms(obj));
 
+    arr.push(obj);
+
     return obj;
   };
 
@@ -486,6 +493,11 @@ const buildObject = (
         arr.find((v) => v[key] === value),
     },
     last: { get: () => arr[arr.length - 1] },
+    filter: {
+      value: (filter: (v: Record<string, unknown>) => boolean) =>
+        arr.filter(filter),
+    },
+    all: { get: () => [...arr] },
     ...getObjTransforms({}),
   });
 

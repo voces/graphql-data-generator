@@ -6,6 +6,9 @@ scalar URL
 enum Role {
   ADMIN
   USER
+}
+
+enum Role {
   GUEST
 }
 

@@ -553,6 +553,20 @@ export const codegen = (
         break;
       }
       case "EnumTypeDefinition":
+        if (!references[definition.name.value]) {
+          references[definition.name.value] = [definition, false];
+        } else {
+          const prev =
+            references[definition.name.value][0] as EnumTypeDefinitionNode;
+          references[definition.name.value][0] = {
+            ...prev,
+            values: [
+              ...(prev.values ?? []),
+              ...(definition.values ?? []),
+            ],
+          };
+        }
+        break;
       case "ScalarTypeDefinition":
         references[definition.name.value] = [definition, false];
         break;

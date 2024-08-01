@@ -1,32 +1,30 @@
 export type EmptyObject = Omit<{ foo: "string" }, "foo">;
 // export type EmptyObject = Record<string, never>;
 
-type ArrayPatch<T, F extends T, Ancestors extends unknown[]> =
-  | Patch<T, F, Ancestors>[]
-  | ({ [K in number]?: Patch<T, F, Ancestors> } & {
+type ArrayPatch<T, F extends T, Args extends unknown[]> =
+  | Patch<T, F, Args>[]
+  | ({ [K in number]?: Patch<T, F, Args> } & {
     length?: number;
     /** Append a value to the array. */
-    next?: Patch<T, F, Ancestors>;
+    next?: Patch<T, F, Args>;
     /** Patch the last value in the array. */
-    last?: Patch<T, F, Ancestors>;
+    last?: Patch<T, F, Args>;
   });
-type ObjectPatch<T, F extends T = T, Ancestors extends unknown[] = []> = {
+type ObjectPatch<T, F extends T = T, Args extends unknown[] = []> = {
   [K in keyof T]?:
-    | (T[K] extends object | null | undefined
-      ? Patch<T[K], F[K], [F, ...Ancestors]>
+    | (T[K] extends object | null | undefined ? Patch<T[K], F[K], Args>
       : T[K])
     | ((
       previous: F,
-      ...ancestors: Ancestors
-    ) => T[K] extends object | null | undefined
-      ? Patch<T[K], F[K], [F, ...Ancestors]>
+      ...args: Args
+    ) => T[K] extends object | null | undefined ? Patch<T[K], F[K], Args>
       : T[K] | undefined | null);
 };
-export type Patch<T, F extends T = T, Ancestors extends unknown[] = []> =
-  T extends (infer U)[]
-    ? F extends (infer V)[] ? V extends U ? ArrayPatch<U, V, Ancestors> : never
-    : never
-    : ObjectPatch<T, F, Ancestors>;
+export type Patch<T, F extends T = T, Args extends unknown[] = []> = T extends
+  (infer U)[]
+  ? F extends (infer V)[] ? V extends U ? ArrayPatch<U, V, Args> : never
+  : never
+  : ObjectPatch<T, F, Args>;
 
 // Very similar to object patch, except without array helpers
 type DefaultObjectTransformSwitch<T, U> = T extends (infer G)[]
