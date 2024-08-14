@@ -1,7 +1,7 @@
 import { __Type, parse } from "npm:graphql";
 import { proxy } from "./proxy.ts";
 import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
-import { Types } from "../examples/board/types.ts";
+import { Inputs, Types } from "../examples/board/types.ts";
 import { serialize } from "./util.ts";
 
 const schema = await Deno.readTextFile("examples/board/schema.graphql");
@@ -335,4 +335,53 @@ Deno.test("objects > arrays > object > next > twice", () => {
   assertEquals(userPosts.length, 2);
   assertObjectMatch(userPosts[0], { __typename: "Post", id: "heh1" });
   assertObjectMatch(userPosts[1], { __typename: "Post", id: "heh2" });
+});
+
+Deno.test("inputs > simple", () => {
+  assertEquals(
+    serialize(
+      proxy<Inputs["CreateUserInput"]>(definitions, "CreateUserInput", scalars),
+    ),
+    {
+      email: "scalar-String-CreateUserInput",
+      name: "scalar-String-CreateUserInput",
+      role: "ADMIN",
+      profilePicture: null,
+    },
+  );
+});
+
+Deno.test("inputs > patch", () => {
+  assertEquals(
+    proxy<Inputs["CreateUserInput"]>(definitions, "CreateUserInput", scalars, {
+      name: (v) => `was length ${v.name.length}`,
+    }).name,
+    "was length 29",
+  );
+});
+
+Deno.test("inputs > nested", () => {
+  assertEquals(
+    serialize(
+      proxy(
+        definitions,
+        "CreatePostAndUpdateUser",
+        scalars,
+      ),
+    ),
+    {
+      createPost: {
+        authorId: "scalar-ID-CreatePostInput",
+        content: "scalar-String-CreatePostInput",
+        title: "scalar-String-CreatePostInput",
+      },
+      updateUser: {
+        email: null, // nullable because update input
+        id: "scalar-ID-UpdateUserInput",
+        name: null,
+        profilePicture: null,
+        role: null,
+      },
+    },
+  );
 });

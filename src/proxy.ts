@@ -115,6 +115,7 @@ const _proxy = <T>(
   if (!definition) throw new Error(`Could not find definition '${name}'`);
 
   switch (definition.kind) {
+    case Kind.INPUT_OBJECT_TYPE_DEFINITION:
     case Kind.OBJECT_TYPE_DEFINITION: {
       if (!prev) {
         prev = patches.length
@@ -261,7 +262,8 @@ const _proxy = <T>(
         if (
           fieldTypeDefinitions.length === 1 &&
           (fieldTypeDefinitions[0].kind === Kind.OBJECT_TYPE_DEFINITION ||
-            fieldTypeDefinitions[0].kind === Kind.INTERFACE_TYPE_DEFINITION)
+            fieldTypeDefinitions[0].kind === Kind.INTERFACE_TYPE_DEFINITION ||
+            fieldTypeDefinitions[0].kind === Kind.INPUT_OBJECT_TYPE_DEFINITION)
         ) {
           const childPatches = patches.map((p) => p[prop as keyof typeof p])
             .filter((v) => !!v && typeof v === "object") as Patch<T[keyof T]>[];
@@ -286,7 +288,9 @@ const _proxy = <T>(
           return true;
         },
         ownKeys: () => [
-          "__typename",
+          ...(definition.kind === Kind.OBJECT_TYPE_DEFINITION
+            ? ["__typename"]
+            : []),
           ...definition.fields?.map((f) => f.name.value) ?? [],
         ],
         getOwnPropertyDescriptor: (target, prop) =>

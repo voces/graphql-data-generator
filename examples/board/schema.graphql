@@ -62,6 +62,11 @@ input UpdateUserInput {
   profilePicture: URL
 }
 
+input CreatePostAndUpdateUser {
+  updateUser: UpdateUserInput!
+  createPost: CreatePostInput!
+}
+
 # Query type
 type Query {
   users: [User!]!
