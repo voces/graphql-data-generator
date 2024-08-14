@@ -28,7 +28,7 @@ type SerializableType =
     value: Record<string, SerializableType>;
     conditionals?: SerializableType[];
     optional: boolean;
-    nonExhaustive?: boolean;
+    nonExhaustive?: string[];
   }
   | { kind: "StringLiteral"; value: string; optional: boolean };
 
@@ -100,7 +100,9 @@ const getType = (
       delete groupedValues[type.name.value];
 
       const nonExhaustive = implementations
-        .some((o) => !(o[0].name.value in groupedValues));
+        .filter((o) => !(o[0].name.value in groupedValues)).map((o) =>
+          o[0].name.value
+        );
 
       return {
         kind: "Object",
@@ -353,7 +355,11 @@ const serializeType = (type: SerializableType): string => {
         ?.filter((c) => c.kind === "Object" && c.value.__typename)
         .map((c) => serializeType(c)) ?? [];
 
-      if (type.nonExhaustive && ors.length) ors.push("{}");
+      if (type.nonExhaustive?.length && ors.length) {
+        ors.push(`{ __typename: ${
+          type.nonExhaustive.map((v) => `"${v}"`).join(" | ")
+        } }`);
+      }
 
       // TODO: Ideally this would be better formatted, but then I need to track
       // depth
@@ -447,9 +453,9 @@ type Operation = {
 };
 
 const operationNames: Record<string, { types: string; list: string }> = {
-  query: { types: "Queries", list: "queries" },
-  mutation: { types: "Mutations", list: "mutations" },
-  subscription: { types: "Subscriptions", list: "subscriptions" },
+  query: { types: "Query", list: "queries" },
+  mutation: { types: "Mutation", list: "mutations" },
+  subscription: { types: "Subscription", list: "subscriptions" },
 };
 
 const simpleType = (

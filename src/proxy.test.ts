@@ -1,164 +1,338 @@
-import { parse } from "npm:graphql";
+import { __Type, parse } from "npm:graphql";
 import { proxy } from "./proxy.ts";
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
 import { Types } from "../examples/board/types.ts";
 import { serialize } from "./util.ts";
 
 const schema = await Deno.readTextFile("examples/board/schema.graphql");
 const { definitions } = parse(schema);
-const ids: Record<string, number | undefined> = {};
 const scalars = new Proxy({}, {
   get: (_, prop) => (t: string) => `scalar-${prop.toString()}-${t}`,
   has: () => true,
 });
 
-Deno.test("objects", async (t) => {
-  await t.step("simple object generation", () => {
-    assertEquals(
-      serialize(
-        proxy<Types["Post"]>(
-          definitions,
-          "Post",
-          scalars,
-        ),
+Deno.test("objects > simple object generation", () => {
+  assertEquals(
+    serialize(
+      proxy<Types["Post"]>(
+        definitions,
+        "Post",
+        scalars,
       ),
-      {
-        __typename: "Post",
-        id: "scalar-ID-Post",
-        createdAt: "scalar-DateTime-Post",
-        title: "scalar-String-Post",
-        content: "scalar-String-Post",
-        author: {
-          __typename: "User",
-          id: "scalar-ID-User",
-          createdAt: "scalar-DateTime-User",
-          name: "scalar-String-User",
-          email: "scalar-String-User",
-          role: "ADMIN",
-          profilePicture: null,
-        },
-      },
-    );
-  });
-
-  await t.step("overwrite field", () => {
-    assertEquals(
-      serialize(
-        proxy<Types["User"]>(definitions, "User", scalars, { id: "my-id" }),
-      ),
-      {
+    ),
+    {
+      __typename: "Post",
+      id: "scalar-ID-Post",
+      createdAt: "scalar-DateTime-Post",
+      title: "scalar-String-Post",
+      content: "scalar-String-Post",
+      author: {
         __typename: "User",
-        id: "my-id",
+        id: "scalar-ID-User",
         createdAt: "scalar-DateTime-User",
         name: "scalar-String-User",
         email: "scalar-String-User",
         role: "ADMIN",
         profilePicture: null,
+        posts: [],
       },
-    );
-  });
+    },
+  );
+});
 
-  await t.step("overwrite the same field twice", () => {
-    assertEquals(
-      serialize(
-        proxy<Types["User"]>(
-          definitions,
-          "User",
-          scalars,
-          { id: "my-id" },
-          { id: "my-id-2" },
-        ),
+Deno.test("objects > overwrite field", () => {
+  assertEquals(
+    serialize(
+      proxy<Types["User"]>(definitions, "User", scalars, { id: "my-id" }),
+    ),
+    {
+      __typename: "User",
+      id: "my-id",
+      createdAt: "scalar-DateTime-User",
+      name: "scalar-String-User",
+      email: "scalar-String-User",
+      role: "ADMIN",
+      profilePicture: null,
+      posts: [],
+    },
+  );
+});
+
+Deno.test("objects > overwrite the same field twice", () => {
+  assertEquals(
+    serialize(
+      proxy<Types["User"]>(
+        definitions,
+        "User",
+        scalars,
+        { id: "my-id" },
+        { id: "my-id-2" },
       ),
-      {
-        __typename: "User",
-        id: "my-id-2",
-        createdAt: "scalar-DateTime-User",
-        name: "scalar-String-User",
-        email: "scalar-String-User",
-        role: "ADMIN",
-        profilePicture: null,
-      },
-    );
-  });
+    ),
+    {
+      __typename: "User",
+      id: "my-id-2",
+      createdAt: "scalar-DateTime-User",
+      name: "scalar-String-User",
+      email: "scalar-String-User",
+      role: "ADMIN",
+      profilePicture: null,
+      posts: [],
+    },
+  );
+});
 
-  await t.step("overwrite diffeent field sets", () => {
-    assertEquals(
-      serialize(
-        proxy<Types["User"]>(
-          definitions,
-          "User",
-          scalars,
-          { id: "my-id" },
-          { name: "my-name" },
-        ),
+Deno.test("objects > overwrite different field sets", () => {
+  assertEquals(
+    serialize(
+      proxy<Types["User"]>(
+        definitions,
+        "User",
+        scalars,
+        { id: "my-id" },
+        { name: "my-name" },
       ),
-      {
-        __typename: "User",
-        id: "my-id",
-        createdAt: "scalar-DateTime-User",
-        name: "my-name",
-        email: "scalar-String-User",
-        role: "ADMIN",
-        profilePicture: null,
-      },
-    );
-  });
+    ),
+    {
+      __typename: "User",
+      id: "my-id",
+      createdAt: "scalar-DateTime-User",
+      name: "my-name",
+      email: "scalar-String-User",
+      role: "ADMIN",
+      profilePicture: null,
+      posts: [],
+    },
+  );
+});
 
-  await t.step("overwrite with functions", () => {
-    assertEquals(
-      serialize(
-        proxy<Types["User"]>(
-          definitions,
-          "User",
-          scalars,
-          {
-            id: (u) => {
-              assertEquals(serialize(u), {
-                // __typename: "User",
-                // id: "my-id",
-                // createdAt: "scalar-DateTime-User",
-                // name: "my-name",
-                // email: "scalar-String-User",
-                // role: "ADMIN",
-                // profilePicture: null,
-              } as any);
-              return "my-id";
-            },
+Deno.test("objects > overwrite with functions", () => {
+  assertEquals(
+    serialize(
+      proxy<Types["User"]>(
+        definitions,
+        "User",
+        scalars,
+        {
+          id: (u) => {
+            // Base object
+            assertEquals(serialize(u), {
+              __typename: "User",
+              id: "scalar-ID-User",
+              createdAt: "scalar-DateTime-User",
+              name: "scalar-String-User",
+              email: "scalar-String-User",
+              role: "ADMIN",
+              profilePicture: null,
+              posts: [],
+            });
+            return "my-id";
           },
-          { name: (u) => "my-name" },
-        ),
+        },
+        {
+          name: (u) => {
+            // Base object + id from previous patch
+            assertEquals(serialize(u), {
+              __typename: "User",
+              id: "my-id",
+              createdAt: "scalar-DateTime-User",
+              name: "scalar-String-User",
+              email: "scalar-String-User",
+              role: "ADMIN",
+              profilePicture: null,
+              posts: [],
+            });
+            return "my-name";
+          },
+        },
       ),
-      {
-        __typename: "User",
-        id: "my-id",
-        createdAt: "scalar-DateTime-User",
-        name: "my-name",
-        email: "scalar-String-User",
-        role: "ADMIN",
-        profilePicture: null,
+    ),
+    {
+      __typename: "User",
+      id: "my-id",
+      createdAt: "scalar-DateTime-User",
+      name: "my-name",
+      email: "scalar-String-User",
+      role: "ADMIN",
+      profilePicture: null,
+      posts: [],
+    },
+  );
+});
+
+Deno.test("objects > individual fields with multiple patches", () => {
+  assertEquals(
+    proxy<Types["Post"]>(definitions, "Post", scalars, { id: "my-id-1" }, {
+      id: (p) => {
+        assertEquals(p.id, "my-id-1");
+        return "my-id-2";
       },
-    );
-  });
+    })
+      .id,
+    "my-id-2",
+  );
+});
 
-  // await t.step("individual fields with multiple patches", () => {
-  //   assertEquals(
-  //     proxy<Types["Post"]>(definitions, "Post", scalars, { id: "my-id-1" }, {
-  //       id: "my-id-2",
-  //     })
-  //       .id,
-  //     "my-id-2",
-  //   );
-  // });
+Deno.test("objects > matching multiple different fields", () => {
+  const post = proxy<Types["Post"]>(
+    definitions,
+    "Post",
+    scalars,
+    { id: "my-id" },
+    { content: "my-content" },
+  );
+  assertEquals(post.id, "my-id");
+  assertEquals(post.content, "my-content");
+});
 
-  // await t.step("matching multiple different fields", () => {
-  //   const post = proxy<Types["Post"]>(
-  //     definitions,
-  //     "Post",
-  //     scalars,
-  //     { id: "my-id" },
-  //     { content: "my-content" },
-  //   );
-  //   assertEquals(post.id, "my-id");
-  //   assertEquals(post.content, "my-content");
-  // });
+Deno.test("objects > overriding with undefined has no impact", () => {
+  assertEquals(
+    proxy<Types["User"]>(definitions, "User", scalars, { id: undefined }).id,
+    "scalar-ID-User",
+  );
+
+  assertEquals(
+    proxy<Types["User"]>(definitions, "User", scalars, { id: "heh" }, {
+      id: undefined,
+    }).id,
+    "heh",
+  );
+
+  assertEquals(
+    proxy<Types["User"]>(definitions, "User", scalars, { id: "heh" }, {
+      id: () => undefined,
+    }).id,
+    "heh",
+  );
+});
+
+Deno.test("objects > interfaces > can resolve an interface with no patches", () => {
+  assertEquals(
+    serialize(proxy<Types["User"]>(definitions, "Node", scalars)),
+    {
+      __typename: "User",
+      createdAt: "scalar-DateTime-User",
+      email: "scalar-String-User",
+      id: "scalar-ID-User",
+      name: "scalar-String-User",
+      profilePicture: null,
+      role: "ADMIN",
+      posts: [],
+    },
+  );
+});
+
+Deno.test("objects > interfaces > can resolve an inteface with a field hint", () => {
+  assertObjectMatch(
+    serialize(
+      proxy<Types["Post"]>(definitions, "Node", scalars, { title: "heh" }),
+    ),
+    { __typename: "Post", title: "heh", author: { __typename: "User" } },
+  );
+});
+
+Deno.test("objects > arrays > simple", () => {
+  const userPosts = proxy<Types["User"]>(
+    definitions,
+    "User",
+    scalars,
+    { posts: [{ id: "heh" }] },
+  ).posts;
+  assertEquals(userPosts.length, 1);
+  assertObjectMatch(userPosts[0], { __typename: "Post", id: "heh" });
+});
+
+Deno.test("objects > arrays twice", () => {
+  const userPosts = proxy<Types["User"]>(
+    definitions,
+    "User",
+    scalars,
+    { posts: [{ id: "heh" }] },
+    { posts: [{ id: (prev) => prev.id + "1" }] },
+  ).posts;
+  assertEquals(userPosts.length, 1);
+  assertObjectMatch(userPosts[0], { __typename: "Post", id: "heh1" });
+});
+
+Deno.test("objects > arrays > shorten", () => {
+  const userPosts = proxy<Types["User"]>(
+    definitions,
+    "User",
+    scalars,
+    { posts: [{ id: "post-1" }, { id: "post-2" }] },
+    { posts: (p) => p.posts.slice(0, 1) },
+  ).posts;
+  assertEquals(userPosts.length, 1);
+  assertObjectMatch(userPosts[0], { __typename: "Post", id: "post-1" });
+});
+
+Deno.test("objects > arrays > object > simple", () => {
+  const userPosts = proxy<Types["User"]>(
+    definitions,
+    "User",
+    scalars,
+    { posts: { 0: { id: "heh" } } },
+    { posts: { 0: { id: (p) => p.id + "1" } } },
+  ).posts;
+  assertEquals(userPosts.length, 1);
+  assertObjectMatch(userPosts[0], { __typename: "Post", id: "heh1" });
+});
+
+Deno.test("objects > arrays > object > length", () => {
+  const userPosts = proxy<Types["User"]>(
+    definitions,
+    "User",
+    scalars,
+    { posts: [{ id: "post-1" }, { id: "post-2" }] },
+    { posts: { length: 1 } },
+  ).posts;
+  assertEquals(userPosts.length, 1);
+  assertObjectMatch(userPosts[0], { __typename: "Post", id: "post-1" });
+});
+
+Deno.test("objects > arrays > object > last > simple", () => {
+  const userPosts = proxy<Types["User"]>(
+    definitions,
+    "User",
+    scalars,
+    { posts: { last: { id: "heh" } } },
+  ).posts;
+  assertEquals(userPosts.length, 1);
+  assertObjectMatch(userPosts[0], { __typename: "Post", id: "heh" });
+});
+
+Deno.test("objects > arrays > object > last > twice", () => {
+  const userPosts = proxy<Types["User"]>(
+    definitions,
+    "User",
+    scalars,
+    { posts: { last: { id: "heh1" } } },
+    { posts: { last: { id: "heh2" } } },
+  ).posts;
+  assertEquals(userPosts.length, 1);
+  assertObjectMatch(userPosts[0], { __typename: "Post", id: "heh2" });
+});
+
+Deno.test("objects > arrays > object > next > simple", () => {
+  const userPosts = proxy<Types["User"]>(
+    definitions,
+    "User",
+    scalars,
+    { posts: { next: { id: "heh" } } },
+  ).posts;
+  assertEquals(userPosts.length, 1);
+  assertObjectMatch(userPosts[0], { __typename: "Post", id: "heh" });
+});
+
+Deno.test("objects > arrays > object > next > twice", () => {
+  const userPosts = proxy<Types["User"]>(
+    definitions,
+    "User",
+    scalars,
+    { posts: { next: { id: "heh1" } } },
+    { posts: { next: { id: "heh2" } } },
+  ).posts;
+  assertEquals(userPosts.length, 2);
+  assertObjectMatch(userPosts[0], { __typename: "Post", id: "heh1" });
+  assertObjectMatch(userPosts[1], { __typename: "Post", id: "heh2" });
 });

@@ -1,22 +1,11 @@
-// export const objectProxy = () => {
-
-import { DefinitionNode, EnumTypeDefinitionNode, Kind } from "npm:graphql";
+import {
+  DefinitionNode,
+  EnumTypeDefinitionNode,
+  InterfaceTypeDefinitionNode,
+  Kind,
+  ObjectTypeDefinitionNode,
+} from "npm:graphql";
 import { Patch } from "./types.ts";
-
-const mergePatch = <T>(
-  definitions: readonly DefinitionNode[],
-  definition: DefinitionNode,
-  ...patches: Patch<T>[]
-): Patch<T> => {
-  switch (definition.kind) {
-    case Kind.OBJECT_TYPE_DEFINITION: {
-      const obj = {} as Patch<T>;
-      return obj;
-    }
-    default:
-      throw new Error(`Unhandled definition kind '${definition.kind}'`);
-  }
-};
 
 const resolveType = (definitions: readonly DefinitionNode[], type: string) => {
   const path = type.split(".");
@@ -61,60 +50,171 @@ const resolveType = (definitions: readonly DefinitionNode[], type: string) => {
   return definition;
 };
 
+const resolveConcreteType = <T>(
+  definitions: readonly DefinitionNode[],
+  definition: InterfaceTypeDefinitionNode,
+  patches: Patch<T>[],
+) => {
+  const objectDefintions = definitions.filter((
+    d,
+  ): d is ObjectTypeDefinitionNode => d.kind === Kind.OBJECT_TYPE_DEFINITION);
+  const interfaceDefintions = definitions.filter((
+    d,
+  ): d is InterfaceTypeDefinitionNode =>
+    d.kind === Kind.INTERFACE_TYPE_DEFINITION
+  );
+
+  let options: ObjectTypeDefinitionNode[] = [];
+  const interfaces = [definition];
+  while (interfaces.length) {
+    const interfaceDefinition = interfaces.pop()!;
+    for (const objectDefintion of objectDefintions) {
+      if (
+        objectDefintion.interfaces?.some((i) =>
+          i.name.value === interfaceDefinition.name.value
+        )
+      ) options.push(objectDefintion);
+    }
+    for (const secondOrderInterfaceDefinition of interfaceDefintions) {
+      if (
+        secondOrderInterfaceDefinition.interfaces?.some((i) =>
+          i.name.value === interfaceDefinition.name.value
+        )
+      ) interfaces.push(secondOrderInterfaceDefinition);
+    }
+  }
+
+  if (options.length === 1) return options[0];
+
+  for (let i = patches.length - 1; i >= 0; i--) {
+    for (const field in patches[i]) {
+      options = options.filter((o) =>
+        o.fields?.some((f) => f.name.value === field)
+      );
+      if (options.length === 1) return options[0];
+    }
+  }
+
+  if (options.length === 0) {
+    throw new Error(
+      `Could not find concrete type for ${definition.name.value}`,
+    );
+  }
+
+  return options[0];
+};
+
 const _proxy = <T>(
   definitions: readonly DefinitionNode[],
   type: string,
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
-  ...patches: Patch<T>[]
+  prev: T | undefined,
+  patches: Patch<T>[],
 ): T => {
   const definition = resolveType(definitions, type);
-
   if (!definition) throw new Error(`Could not find definition '${name}'`);
 
   switch (definition.kind) {
     case Kind.OBJECT_TYPE_DEFINITION: {
+      if (!prev) {
+        prev = patches.length
+          ? _proxy(definitions, type, scalars, undefined, patches.slice(0, -1))
+          : undefined;
+      }
+
       const getProp = (target: Partial<T>, prop: string | symbol) => {
         if (prop === "toJSON") return;
         if (prop === "__typename") return definition.name.value;
         if (prop in target) return target[prop as keyof T];
         if (typeof prop === "symbol") return target[prop as keyof T];
 
-        for (let i = patches.length - 1; i >= 0; i--) {
-          if (!(prop in patches[i])) continue;
+        const field = definition.fields?.find((f) => f.name.value === prop);
+        if (!field) return target[prop as keyof T];
 
-          const rawValue = patches[i][prop as keyof Patch<T>];
-          const value = typeof rawValue === "function" ? rawValue(p) : rawValue;
+        // Get from patch
+        if (patches.length > 0 && prop in patches[patches.length - 1]) {
+          const rawValue = patches[patches.length - 1][prop as keyof Patch<T>];
+          const value = typeof rawValue === "function"
+            ? rawValue(prev)
+            : rawValue;
 
           if (value && typeof value === "object") {
+            const nonNullFieldType = field.type.kind === Kind.NON_NULL_TYPE
+              ? field.type.type
+              : field.type;
+
+            if (nonNullFieldType.kind === Kind.LIST_TYPE) {
+              const previousArray =
+                (prev?.[prop as keyof T] ?? []) as unknown[];
+              if (Array.isArray(value)) {
+                return target[prop as keyof T] = value.map((v, i) =>
+                  _proxy(
+                    definitions,
+                    `${type}.${prop}`,
+                    scalars,
+                    previousArray[i],
+                    v ? [v] : [],
+                  )
+                ) as T[keyof T];
+              } else {
+                const lastIndex = Math.max(previousArray.length - 1, 0);
+                const nextIndex = previousArray.length;
+                const length = typeof value.length === "number"
+                  ? value.length
+                  : Math.max(
+                    previousArray.length,
+                    ...Object.keys(value).map((v) => {
+                      const i = parseInt(v);
+                      if (!Number.isNaN(i)) return i + 1;
+                      if (v === "last") return lastIndex + 1;
+                      if (v === "next") return nextIndex + 1;
+                      if (v === "length") return 0;
+                      throw new Error(`Unhandled array index ${v}`);
+                    }),
+                  );
+                const arr = [] as T[keyof T] & unknown[];
+                for (let i = 0; i < length; i++) {
+                  arr[i] = _proxy(
+                    definitions,
+                    `${type}.${prop}`,
+                    scalars,
+                    previousArray[i],
+                    [
+                      value[i],
+                      i === lastIndex ? value.last : undefined,
+                      i === nextIndex ? value.next : undefined,
+                    ].filter((v) => v != null),
+                  );
+                }
+                return target[prop as keyof T] = arr;
+              }
+            }
+
             type Child = T[keyof T];
-            const childPatches: Patch<Child>[] = patches.map((
-              p,
-            ) =>
-              p[prop as keyof typeof p] as
-                | Patch<Child>
-                | undefined
-            )
-              // deno-lint-ignore no-explicit-any
-              .filter((v: any): v is Patch<Child> =>
-                v && typeof v === "object"
-              );
+            const childPatches: Patch<Child>[] = patches.map((p) =>
+              p[prop as keyof typeof p] as Patch<Child> | undefined
+            ).filter((v): v is Patch<Child> => !!v && typeof v === "object");
             return target[prop as keyof T] = _proxy<Child>(
               definitions,
               `${type}.${prop}`,
               scalars,
-              ...childPatches,
+              undefined,
+              childPatches,
             );
           }
 
-          return target[prop as keyof T] = value as T[keyof T];
+          if (value == null) {
+            if (field.type.kind !== Kind.NON_NULL_TYPE) {
+              return target[prop as keyof T] = null as T[keyof T];
+            }
+          } else return target[prop as keyof T] = value as T[keyof T];
         }
 
-        const field = definition.fields?.find((f) => f.name.value === prop);
-        if (!field) {
-          throw new Error(
-            `Could not find field ${prop} in ${name}`,
-          );
-        }
+        // Get from prev proxy if available
+        if (prev) return target[prop as keyof T] = prev[prop as keyof T];
+
+        // Otherwise generate it from type
+
         if (field.type.kind !== Kind.NON_NULL_TYPE) {
           return target[prop as keyof T] = null as T[keyof T];
         }
@@ -142,13 +242,11 @@ const _proxy = <T>(
         }
 
         if (
-          // Incldues fieldTypeDefinitions.length === 0
           fieldTypeDefinitions.every((d) =>
             d.kind === Kind.SCALAR_TYPE_DEFINITION
           )
         ) {
           if (!(fieldType.name.value in scalars)) {
-            console.log(fieldType.name.value);
             throw new Error(
               `Missing scalar ${fieldType.name.value}`,
             );
@@ -162,15 +260,17 @@ const _proxy = <T>(
 
         if (
           fieldTypeDefinitions.length === 1 &&
-          fieldTypeDefinitions[0].kind === Kind.OBJECT_TYPE_DEFINITION
+          (fieldTypeDefinitions[0].kind === Kind.OBJECT_TYPE_DEFINITION ||
+            fieldTypeDefinitions[0].kind === Kind.INTERFACE_TYPE_DEFINITION)
         ) {
-          return target[prop as keyof T] = proxy(
+          const childPatches = patches.map((p) => p[prop as keyof typeof p])
+            .filter((v) => !!v && typeof v === "object") as Patch<T[keyof T]>[];
+          return target[prop as keyof T] = _proxy<T[keyof T]>(
             definitions,
             `${type}.${prop}`,
             scalars,
-            //@ts-ignore Zz
-            ...patches.map((p) => p[prop as keyof typeof p])
-              .filter((v) => v && typeof v === "object"),
+            undefined,
+            childPatches,
           );
         }
 
@@ -179,8 +279,12 @@ const _proxy = <T>(
         );
       };
 
-      const p = new Proxy({}, {
+      return new Proxy({}, {
         get: getProp,
+        set: (prev, prop, value) => {
+          (prev as T & object)[prop as keyof T] = value;
+          return true;
+        },
         ownKeys: () => [
           "__typename",
           ...definition.fields?.map((f) => f.name.value) ?? [],
@@ -197,48 +301,29 @@ const _proxy = <T>(
             })
             : Object.getOwnPropertyDescriptor(target, prop),
       }) as T;
-
-      return p;
+    }
+    case Kind.INTERFACE_TYPE_DEFINITION: {
+      const concreteType = resolveConcreteType(
+        definitions,
+        definition,
+        patches,
+      );
+      return _proxy(
+        definitions,
+        concreteType.name.value,
+        scalars,
+        undefined,
+        patches,
+      );
     }
     default:
       throw new Error(`Unhandled definition kind '${definition.kind}'`);
   }
 };
 
-// const serialize = <T>(
-//   proxyObject: T,
-//   definitions: readonly DefinitionNode[],
-//   type: string,
-// ) => {
-//   // No need to serialize primitives
-//   if (typeof proxyObject !== "object" || !proxyObject) return proxyObject;
-
-//   const definition = resolveType(definitions, type);
-//   if (!definition) throw new Error(`Could not find definition '${name}'`);
-
-//   // Not an object (TODO: arrays?)
-//   if (!("fields" in definition)) return proxyObject;
-
-//   const obj = {} as T;
-//   for (const field of definition.fields ?? []) {
-//     console.log("reading", field.name.value);
-//     obj[field.name.value as keyof T] = proxyObject[field.name.value as keyof T];
-//   }
-
-//   // if ("interfaces" in definition) definition.interfaces;
-
-//   // console.log(definition.fields?.map((f) => f.name.value));
-//   return obj;
-// };
-
 export const proxy = <T>(
   definitions: readonly DefinitionNode[],
   type: string,
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   ...patches: Patch<T>[]
-): T =>
-  // serialize(
-  _proxy(definitions, type, scalars, ...patches);
-//   definitions,
-//   type,
-// );
+): T => _proxy(definitions, type, scalars, undefined, patches);

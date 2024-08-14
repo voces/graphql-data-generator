@@ -1,0 +1,10 @@
+query GetUserPosts($id: ID!) {
+  node(id: $id) {
+    id
+    ... on User {
+      posts {
+        id
+      }
+    }
+  }
+}

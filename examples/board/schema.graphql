@@ -26,6 +26,7 @@ type User implements Node {
   email: String!
   role: Role!
   profilePicture: URL
+  posts: [Post!]!
 }
 
 type Post implements Node {
