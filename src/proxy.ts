@@ -106,8 +106,8 @@ const resolveConcreteType = <T>(
 
 const _proxy = <T>(
   definitions: readonly DefinitionNode[],
-  type: string,
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
+  type: string,
   prev: T | undefined,
   patches: Patch<T>[],
 ): T => {
@@ -119,7 +119,7 @@ const _proxy = <T>(
     case Kind.OBJECT_TYPE_DEFINITION: {
       if (!prev) {
         prev = patches.length
-          ? _proxy(definitions, type, scalars, undefined, patches.slice(0, -1))
+          ? _proxy(definitions, scalars, type, undefined, patches.slice(0, -1))
           : undefined;
       }
 
@@ -151,8 +151,8 @@ const _proxy = <T>(
                 return target[prop as keyof T] = value.map((v, i) =>
                   _proxy(
                     definitions,
-                    `${type}.${prop}`,
                     scalars,
+                    `${type}.${prop}`,
                     previousArray[i],
                     v ? [v] : [],
                   )
@@ -177,8 +177,8 @@ const _proxy = <T>(
                 for (let i = 0; i < length; i++) {
                   arr[i] = _proxy(
                     definitions,
-                    `${type}.${prop}`,
                     scalars,
+                    `${type}.${prop}`,
                     previousArray[i],
                     [
                       value[i],
@@ -197,8 +197,8 @@ const _proxy = <T>(
             ).filter((v): v is Patch<Child> => !!v && typeof v === "object");
             return target[prop as keyof T] = _proxy<Child>(
               definitions,
-              `${type}.${prop}`,
               scalars,
+              `${type}.${prop}`,
               undefined,
               childPatches,
             );
@@ -269,8 +269,8 @@ const _proxy = <T>(
             .filter((v) => !!v && typeof v === "object") as Patch<T[keyof T]>[];
           return target[prop as keyof T] = _proxy<T[keyof T]>(
             definitions,
-            `${type}.${prop}`,
             scalars,
+            `${type}.${prop}`,
             undefined,
             childPatches,
           );
@@ -314,8 +314,8 @@ const _proxy = <T>(
       );
       return _proxy(
         definitions,
-        concreteType.name.value,
         scalars,
+        concreteType.name.value,
         undefined,
         patches,
       );
@@ -327,7 +327,7 @@ const _proxy = <T>(
 
 export const proxy = <T>(
   definitions: readonly DefinitionNode[],
-  type: string,
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
+  type: string,
   ...patches: Patch<T>[]
-): T => _proxy(definitions, type, scalars, undefined, patches);
+): T => _proxy(definitions, scalars, type, undefined, patches);

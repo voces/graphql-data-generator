@@ -16,8 +16,8 @@ Deno.test("objects > simple object generation", () => {
     serialize(
       proxy<Types["Post"]>(
         definitions,
-        "Post",
         scalars,
+        "Post",
       ),
     ),
     {
@@ -43,7 +43,7 @@ Deno.test("objects > simple object generation", () => {
 Deno.test("objects > overwrite field", () => {
   assertEquals(
     serialize(
-      proxy<Types["User"]>(definitions, "User", scalars, { id: "my-id" }),
+      proxy<Types["User"]>(definitions, scalars, "User", { id: "my-id" }),
     ),
     {
       __typename: "User",
@@ -63,8 +63,8 @@ Deno.test("objects > overwrite the same field twice", () => {
     serialize(
       proxy<Types["User"]>(
         definitions,
-        "User",
         scalars,
+        "User",
         { id: "my-id" },
         { id: "my-id-2" },
       ),
@@ -87,8 +87,8 @@ Deno.test("objects > overwrite different field sets", () => {
     serialize(
       proxy<Types["User"]>(
         definitions,
-        "User",
         scalars,
+        "User",
         { id: "my-id" },
         { name: "my-name" },
       ),
@@ -111,8 +111,8 @@ Deno.test("objects > overwrite with functions", () => {
     serialize(
       proxy<Types["User"]>(
         definitions,
-        "User",
         scalars,
+        "User",
         {
           id: (u) => {
             // Base object
@@ -162,7 +162,7 @@ Deno.test("objects > overwrite with functions", () => {
 
 Deno.test("objects > individual fields with multiple patches", () => {
   assertEquals(
-    proxy<Types["Post"]>(definitions, "Post", scalars, { id: "my-id-1" }, {
+    proxy<Types["Post"]>(definitions, scalars, "Post", { id: "my-id-1" }, {
       id: (p) => {
         assertEquals(p.id, "my-id-1");
         return "my-id-2";
@@ -176,8 +176,8 @@ Deno.test("objects > individual fields with multiple patches", () => {
 Deno.test("objects > matching multiple different fields", () => {
   const post = proxy<Types["Post"]>(
     definitions,
-    "Post",
     scalars,
+    "Post",
     { id: "my-id" },
     { content: "my-content" },
   );
@@ -187,19 +187,19 @@ Deno.test("objects > matching multiple different fields", () => {
 
 Deno.test("objects > overriding with undefined has no impact", () => {
   assertEquals(
-    proxy<Types["User"]>(definitions, "User", scalars, { id: undefined }).id,
+    proxy<Types["User"]>(definitions, scalars, "User", { id: undefined }).id,
     "scalar-ID-User",
   );
 
   assertEquals(
-    proxy<Types["User"]>(definitions, "User", scalars, { id: "heh" }, {
+    proxy<Types["User"]>(definitions, scalars, "User", { id: "heh" }, {
       id: undefined,
     }).id,
     "heh",
   );
 
   assertEquals(
-    proxy<Types["User"]>(definitions, "User", scalars, { id: "heh" }, {
+    proxy<Types["User"]>(definitions, scalars, "User", { id: "heh" }, {
       id: () => undefined,
     }).id,
     "heh",
@@ -208,7 +208,7 @@ Deno.test("objects > overriding with undefined has no impact", () => {
 
 Deno.test("objects > interfaces > can resolve an interface with no patches", () => {
   assertEquals(
-    serialize(proxy<Types["User"]>(definitions, "Node", scalars)),
+    serialize(proxy<Types["User"]>(definitions, scalars, "Node")),
     {
       __typename: "User",
       createdAt: "scalar-DateTime-User",
@@ -225,7 +225,7 @@ Deno.test("objects > interfaces > can resolve an interface with no patches", () 
 Deno.test("objects > interfaces > can resolve an inteface with a field hint", () => {
   assertObjectMatch(
     serialize(
-      proxy<Types["Post"]>(definitions, "Node", scalars, { title: "heh" }),
+      proxy<Types["Post"]>(definitions, scalars, "Node", { title: "heh" }),
     ),
     { __typename: "Post", title: "heh", author: { __typename: "User" } },
   );
@@ -234,8 +234,8 @@ Deno.test("objects > interfaces > can resolve an inteface with a field hint", ()
 Deno.test("objects > arrays > simple", () => {
   const userPosts = proxy<Types["User"]>(
     definitions,
-    "User",
     scalars,
+    "User",
     { posts: [{ id: "heh" }] },
   ).posts;
   assertEquals(userPosts.length, 1);
@@ -245,8 +245,8 @@ Deno.test("objects > arrays > simple", () => {
 Deno.test("objects > arrays twice", () => {
   const userPosts = proxy<Types["User"]>(
     definitions,
-    "User",
     scalars,
+    "User",
     { posts: [{ id: "heh" }] },
     { posts: [{ id: (prev) => prev.id + "1" }] },
   ).posts;
@@ -257,8 +257,8 @@ Deno.test("objects > arrays twice", () => {
 Deno.test("objects > arrays > shorten", () => {
   const userPosts = proxy<Types["User"]>(
     definitions,
-    "User",
     scalars,
+    "User",
     { posts: [{ id: "post-1" }, { id: "post-2" }] },
     { posts: (p) => p.posts.slice(0, 1) },
   ).posts;
@@ -269,8 +269,8 @@ Deno.test("objects > arrays > shorten", () => {
 Deno.test("objects > arrays > object > simple", () => {
   const userPosts = proxy<Types["User"]>(
     definitions,
-    "User",
     scalars,
+    "User",
     { posts: { 0: { id: "heh" } } },
     { posts: { 0: { id: (p) => p.id + "1" } } },
   ).posts;
@@ -281,8 +281,8 @@ Deno.test("objects > arrays > object > simple", () => {
 Deno.test("objects > arrays > object > length", () => {
   const userPosts = proxy<Types["User"]>(
     definitions,
-    "User",
     scalars,
+    "User",
     { posts: [{ id: "post-1" }, { id: "post-2" }] },
     { posts: { length: 1 } },
   ).posts;
@@ -293,8 +293,8 @@ Deno.test("objects > arrays > object > length", () => {
 Deno.test("objects > arrays > object > last > simple", () => {
   const userPosts = proxy<Types["User"]>(
     definitions,
-    "User",
     scalars,
+    "User",
     { posts: { last: { id: "heh" } } },
   ).posts;
   assertEquals(userPosts.length, 1);
@@ -304,8 +304,8 @@ Deno.test("objects > arrays > object > last > simple", () => {
 Deno.test("objects > arrays > object > last > twice", () => {
   const userPosts = proxy<Types["User"]>(
     definitions,
-    "User",
     scalars,
+    "User",
     { posts: { last: { id: "heh1" } } },
     { posts: { last: { id: "heh2" } } },
   ).posts;
@@ -316,8 +316,8 @@ Deno.test("objects > arrays > object > last > twice", () => {
 Deno.test("objects > arrays > object > next > simple", () => {
   const userPosts = proxy<Types["User"]>(
     definitions,
-    "User",
     scalars,
+    "User",
     { posts: { next: { id: "heh" } } },
   ).posts;
   assertEquals(userPosts.length, 1);
@@ -327,8 +327,8 @@ Deno.test("objects > arrays > object > next > simple", () => {
 Deno.test("objects > arrays > object > next > twice", () => {
   const userPosts = proxy<Types["User"]>(
     definitions,
-    "User",
     scalars,
+    "User",
     { posts: { next: { id: "heh1" } } },
     { posts: { next: { id: "heh2" } } },
   ).posts;
@@ -340,7 +340,7 @@ Deno.test("objects > arrays > object > next > twice", () => {
 Deno.test("inputs > simple", () => {
   assertEquals(
     serialize(
-      proxy<Inputs["CreateUserInput"]>(definitions, "CreateUserInput", scalars),
+      proxy<Inputs["CreateUserInput"]>(definitions, scalars, "CreateUserInput"),
     ),
     {
       email: "scalar-String-CreateUserInput",
@@ -353,7 +353,7 @@ Deno.test("inputs > simple", () => {
 
 Deno.test("inputs > patch", () => {
   assertEquals(
-    proxy<Inputs["CreateUserInput"]>(definitions, "CreateUserInput", scalars, {
+    proxy<Inputs["CreateUserInput"]>(definitions, scalars, "CreateUserInput", {
       name: (v) => `was length ${v.name.length}`,
     }).name,
     "was length 29",
@@ -365,8 +365,8 @@ Deno.test("inputs > nested", () => {
     serialize(
       proxy(
         definitions,
-        "CreatePostAndUpdateUser",
         scalars,
+        "CreatePostAndUpdateUser",
       ),
     ),
     {
