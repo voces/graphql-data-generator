@@ -1,8 +1,8 @@
-mutation CreateUser($input: CreateUserInput!) {
-  createUser(input: $input) {
+mutation CreateUser($input: CreateUserInput!, $foo: ID!) {
+  createUser2: createUser(input: $input) {
     id
     name
-    email
+    foo: email
     role
     profilePicture
     createdAt

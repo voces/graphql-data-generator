@@ -1,3 +1,5 @@
+import type { GraphQLError } from "npm:graphql";
+
 export type EmptyObject = Omit<{ foo: "string" }, "foo">;
 // export type EmptyObject = Record<string, never>;
 
@@ -52,7 +54,8 @@ export type OperationMock<
   Variables = Record<string, unknown> | never,
 > = {
   request: { query: string; variables?: Variables };
-  result: { data?: Data; errors?: unknown[] };
+  result: { data?: Data; errors?: GraphQLError[] };
+  error?: Error;
 };
 
 type Shift<T extends unknown[]> = T extends [infer _First, ...infer Rest] ? Rest

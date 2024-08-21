@@ -158,15 +158,15 @@ const scalars = {
   String: "",
 };
 
-console.log(
-  proxy<Types["Post"]>(
-    definitions,
-    "Query.posts",
-    scalars,
-    { id: "yo" },
-    // { author: { name: "heh" } },
-  ).id,
-);
+// console.log(
+//   proxy<Types["Post"]>(
+//     definitions,
+//     "Query.posts",
+//     scalars,
+//     { id: "yo" },
+//     // { author: { name: "heh" } },
+//   ).id,
+// );
 
 // console.log(
 //   proxy<Types["Post"]>(definitions, "Query.node", scalars, { id: "yo" }, {

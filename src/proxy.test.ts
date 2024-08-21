@@ -1,7 +1,7 @@
 import { __Type, parse } from "npm:graphql";
-import { proxy } from "./proxy.ts";
+import { operation, proxy } from "./proxy.ts";
 import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
-import { Inputs, Types } from "../examples/board/types.ts";
+import { Inputs, Mutation, Query, Types } from "../examples/board/types.ts";
 import { serialize } from "./util.ts";
 
 const schema = await Deno.readTextFile("examples/board/schema.graphql");
@@ -204,6 +204,71 @@ Deno.test("objects > overriding with undefined has no impact", () => {
     }).id,
     "heh",
   );
+
+  assertEquals(
+    proxy<Types["User"]>(
+      definitions,
+      scalars,
+      "User",
+      { profilePicture: "yo" },
+      { profilePicture: undefined },
+    ).profilePicture,
+    "yo",
+  );
+});
+
+Deno.test("objects > overriding with null has impact", () => {
+  assertEquals(
+    proxy<Types["User"]>(
+      definitions,
+      scalars,
+      "User",
+      { profilePicture: "yo" },
+      { profilePicture: null },
+    ).profilePicture,
+    null,
+  );
+});
+
+Deno.test("objects > incompatible patches goes with past patch", () => {
+  assertEquals(
+    serialize(proxy<Types["Post"] | Types["User"]>(
+      definitions,
+      scalars,
+      "Query.node",
+      { name: "my-name" },
+      { title: "my-title" },
+    )),
+    {
+      __typename: "Post",
+      id: "scalar-ID-Post",
+      title: "my-title",
+      createdAt: "scalar-DateTime-Post",
+      content: "scalar-String-Post",
+      author: {
+        __typename: "User",
+        createdAt: "scalar-DateTime-User",
+        email: "scalar-String-User",
+        id: "scalar-ID-User",
+        name: "scalar-String-User",
+        posts: [],
+        profilePicture: null,
+        role: "ADMIN",
+      },
+    },
+  );
+
+  assertEquals(
+    serialize(proxy<Types["Post"] | Types["User"]>(
+      definitions,
+      scalars,
+      "Query.node",
+      { name: "my-name" },
+      { title: "my-title" },
+      { name: "my-name" },
+    )).__typename,
+    "User",
+  );
 });
 
 Deno.test("objects > interfaces > can resolve an interface with no patches", () => {
@@ -384,4 +449,28 @@ Deno.test("inputs > nested", () => {
       },
     },
   );
+});
+
+Deno.test.only("operations > smoke", async () => {
+  const foo = operation<Mutation["CreateUser"]>(
+    definitions,
+    scalars,
+    // "query Foo { simple }",
+    await Deno.readTextFile("examples/board/CreateUser.gql"),
+    {},
+    { variables: { input: { profilePicture: "yoo!" } } },
+    {
+      variables: (v) => {
+        // console.log(v);
+        return {
+          input: { profilePicture: v.variables.input.profilePicture + "1" },
+          // foo: (p) => `${v.variables.foo} - ${p.foo}`,
+        };
+        // return {
+        //   input: (v) => undefined,
+        // };
+      },
+    },
+  );
+  console.log(serialize(foo.result));
 });

@@ -111,7 +111,7 @@ const buildOperation = (
       ? defaultGenerator(
         new Proxy(mock, {
           get: (target, p) => {
-            console.log("trap", target, p);
+            // console.log("trap", target, p);
             return target[p as keyof typeof target];
           },
         }),

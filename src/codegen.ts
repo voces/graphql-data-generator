@@ -356,9 +356,11 @@ const serializeType = (type: SerializableType): string => {
         .map((c) => serializeType(c)) ?? [];
 
       if (type.nonExhaustive?.length && ors.length) {
-        ors.push(`{ __typename: ${
-          type.nonExhaustive.map((v) => `"${v}"`).join(" | ")
-        } }`);
+        ors.push(
+          `{ __typename: ${
+            type.nonExhaustive.map((v) => `"${v}"`).join(" | ")
+          } }`,
+        );
       }
 
       // TODO: Ideally this would be better formatted, but then I need to track

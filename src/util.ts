@@ -35,3 +35,9 @@ export const serialize = <T>(proxy: T): T => {
   for (const prop in proxy) obj[prop] = serialize(proxy[prop]);
   return obj as T;
 };
+
+export const absurd = (v: never) => {
+  const error = new Error(`Unexpected value: ${v}`);
+  Error.captureStackTrace(error, absurd);
+  throw error;
+};

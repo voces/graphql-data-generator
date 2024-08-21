@@ -73,6 +73,7 @@ type Query {
   posts: [Post!]!
   search(term: String!): [SearchResult!]!
   node(id: ID!): Node!
+  simple: URL
 }
 
 # Mutation type
