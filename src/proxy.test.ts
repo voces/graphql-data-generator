@@ -2,7 +2,6 @@ import { __Type, parse } from "npm:graphql";
 import { operation, proxy } from "./proxy.ts";
 import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
 import { Inputs, Mutation, Query, Types } from "../examples/board/types.ts";
-import { serialize } from "./util.ts";
 
 const schema = await Deno.readTextFile("examples/board/schema.graphql");
 const { definitions } = parse(schema);
@@ -11,15 +10,19 @@ const scalars = new Proxy({}, {
   has: () => true,
 });
 
+Deno.test("scalars > built-in", () => {
+  assertEquals(proxy(definitions, scalars, "String"), "scalar-String-String");
+  assertEquals(proxy<string>(definitions, scalars, "String", "ok"), "ok");
+});
+
+Deno.test("scalars > custom", () => {
+  assertEquals(proxy(definitions, scalars, "URL"), "scalar-URL-URL");
+  assertEquals(proxy<string>(definitions, scalars, "URL", "ok"), "ok");
+});
+
 Deno.test("objects > simple object generation", () => {
   assertEquals(
-    serialize(
-      proxy<Types["Post"]>(
-        definitions,
-        scalars,
-        "Post",
-      ),
-    ),
+    proxy<Types["Post"]>(definitions, scalars, "Post"),
     {
       __typename: "Post",
       id: "scalar-ID-Post",
@@ -42,9 +45,7 @@ Deno.test("objects > simple object generation", () => {
 
 Deno.test("objects > overwrite field", () => {
   assertEquals(
-    serialize(
-      proxy<Types["User"]>(definitions, scalars, "User", { id: "my-id" }),
-    ),
+    proxy<Types["User"]>(definitions, scalars, "User", { id: "my-id" }),
     {
       __typename: "User",
       id: "my-id",
@@ -60,14 +61,12 @@ Deno.test("objects > overwrite field", () => {
 
 Deno.test("objects > overwrite the same field twice", () => {
   assertEquals(
-    serialize(
-      proxy<Types["User"]>(
-        definitions,
-        scalars,
-        "User",
-        { id: "my-id" },
-        { id: "my-id-2" },
-      ),
+    proxy<Types["User"]>(
+      definitions,
+      scalars,
+      "User",
+      { id: "my-id" },
+      { id: "my-id-2" },
     ),
     {
       __typename: "User",
@@ -84,14 +83,12 @@ Deno.test("objects > overwrite the same field twice", () => {
 
 Deno.test("objects > overwrite different field sets", () => {
   assertEquals(
-    serialize(
-      proxy<Types["User"]>(
-        definitions,
-        scalars,
-        "User",
-        { id: "my-id" },
-        { name: "my-name" },
-      ),
+    proxy<Types["User"]>(
+      definitions,
+      scalars,
+      "User",
+      { id: "my-id" },
+      { name: "my-name" },
     ),
     {
       __typename: "User",
@@ -108,44 +105,42 @@ Deno.test("objects > overwrite different field sets", () => {
 
 Deno.test("objects > overwrite with functions", () => {
   assertEquals(
-    serialize(
-      proxy<Types["User"]>(
-        definitions,
-        scalars,
-        "User",
-        {
-          id: (u) => {
-            // Base object
-            assertEquals(serialize(u), {
-              __typename: "User",
-              id: "scalar-ID-User",
-              createdAt: "scalar-DateTime-User",
-              name: "scalar-String-User",
-              email: "scalar-String-User",
-              role: "ADMIN",
-              profilePicture: null,
-              posts: [],
-            });
-            return "my-id";
-          },
+    proxy<Types["User"]>(
+      definitions,
+      scalars,
+      "User",
+      {
+        id: (u) => {
+          // Base object
+          assertEquals(u, {
+            __typename: "User",
+            id: "scalar-ID-User",
+            createdAt: "scalar-DateTime-User",
+            name: "scalar-String-User",
+            email: "scalar-String-User",
+            role: "ADMIN",
+            profilePicture: null,
+            posts: [],
+          });
+          return "my-id";
         },
-        {
-          name: (u) => {
-            // Base object + id from previous patch
-            assertEquals(serialize(u), {
-              __typename: "User",
-              id: "my-id",
-              createdAt: "scalar-DateTime-User",
-              name: "scalar-String-User",
-              email: "scalar-String-User",
-              role: "ADMIN",
-              profilePicture: null,
-              posts: [],
-            });
-            return "my-name";
-          },
+      },
+      {
+        name: (u) => {
+          // Base object + id from previous patch
+          assertEquals(u, {
+            __typename: "User",
+            id: "my-id",
+            createdAt: "scalar-DateTime-User",
+            name: "scalar-String-User",
+            email: "scalar-String-User",
+            role: "ADMIN",
+            profilePicture: null,
+            posts: [],
+          });
+          return "my-name";
         },
-      ),
+      },
     ),
     {
       __typename: "User",
@@ -232,13 +227,13 @@ Deno.test("objects > overriding with null has impact", () => {
 
 Deno.test("objects > incompatible patches goes with past patch", () => {
   assertEquals(
-    serialize(proxy<Types["Post"] | Types["User"]>(
+    proxy<Types["Post"] | Types["User"]>(
       definitions,
       scalars,
       "Query.node",
       { name: "my-name" },
       { title: "my-title" },
-    )),
+    ),
     {
       __typename: "Post",
       id: "scalar-ID-Post",
@@ -259,21 +254,21 @@ Deno.test("objects > incompatible patches goes with past patch", () => {
   );
 
   assertEquals(
-    serialize(proxy<Types["Post"] | Types["User"]>(
+    proxy<Types["Post"] | Types["User"]>(
       definitions,
       scalars,
       "Query.node",
       { name: "my-name" },
       { title: "my-title" },
       { name: "my-name" },
-    )).__typename,
+    ).__typename,
     "User",
   );
 });
 
 Deno.test("objects > interfaces > can resolve an interface with no patches", () => {
   assertEquals(
-    serialize(proxy<Types["User"]>(definitions, scalars, "Node")),
+    proxy<Types["User"]>(definitions, scalars, "Node"),
     {
       __typename: "User",
       createdAt: "scalar-DateTime-User",
@@ -289,9 +284,7 @@ Deno.test("objects > interfaces > can resolve an interface with no patches", () 
 
 Deno.test("objects > interfaces > can resolve an inteface with a field hint", () => {
   assertObjectMatch(
-    serialize(
-      proxy<Types["Post"]>(definitions, scalars, "Node", { title: "heh" }),
-    ),
+    proxy<Types["Post"]>(definitions, scalars, "Node", { title: "heh" }),
     { __typename: "Post", title: "heh", author: { __typename: "User" } },
   );
 });
@@ -404,9 +397,7 @@ Deno.test("objects > arrays > object > next > twice", () => {
 
 Deno.test("inputs > simple", () => {
   assertEquals(
-    serialize(
-      proxy<Inputs["CreateUserInput"]>(definitions, scalars, "CreateUserInput"),
-    ),
+    proxy<Inputs["CreateUserInput"]>(definitions, scalars, "CreateUserInput"),
     {
       email: "scalar-String-CreateUserInput",
       name: "scalar-String-CreateUserInput",
@@ -427,13 +418,7 @@ Deno.test("inputs > patch", () => {
 
 Deno.test("inputs > nested", () => {
   assertEquals(
-    serialize(
-      proxy(
-        definitions,
-        scalars,
-        "CreatePostAndUpdateUser",
-      ),
-    ),
+    proxy(definitions, scalars, "CreatePostAndUpdateUser"),
     {
       createPost: {
         authorId: "scalar-ID-CreatePostInput",
@@ -451,26 +436,438 @@ Deno.test("inputs > nested", () => {
   );
 });
 
-Deno.test.only("operations > smoke", async () => {
-  const foo = operation<Mutation["CreateUser"]>(
-    definitions,
-    scalars,
-    // "query Foo { simple }",
-    await Deno.readTextFile("examples/board/CreateUser.gql"),
-    {},
-    { variables: { input: { profilePicture: "yoo!" } } },
+Deno.test("operations > queries > nonnullableScalar", () => {
+  const query = "query Foo { nonnullableScalar }";
+  type Operation = { data: { nonnullableScalar: string } };
+
+  assertEquals(operation<Operation>(definitions, scalars, query), {
+    request: { query },
+    result: { data: { nonnullableScalar: "scalar-String-Query" } },
+  });
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nonnullableScalar: "override" },
+    }).result.data?.nonnullableScalar,
+    "override",
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nonnullableScalar: (p) => `${p.nonnullableScalar}-2` },
+    }).result.data?.nonnullableScalar,
+    "scalar-String-Query-2",
+  );
+});
+
+Deno.test("operations > queries > nullable scalar", () => {
+  const query = "query Foo { nullableScalar }";
+  type Operation = { data: { nullableScalar: string | null } };
+
+  assertEquals(operation<Operation>(definitions, scalars, query), {
+    request: { query },
+    result: { data: { nullableScalar: null } },
+  });
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nullableScalar: "ok" },
+    }),
+    { request: { query }, result: { data: { nullableScalar: "ok" } } },
+  );
+});
+
+Deno.test("operations > queries > nonnullablesNonnullableScalars", () => {
+  const query = "query Foo { nonnullablesNonnullableScalars }";
+  type Operation = { data: { nonnullablesNonnullableScalars: string[] } };
+
+  assertEquals(operation<Operation>(definitions, scalars, query), {
+    request: { query },
+    result: { data: { nonnullablesNonnullableScalars: [] } },
+  });
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nonnullablesNonnullableScalars: ["foo"] },
+    }),
     {
-      variables: (v) => {
-        // console.log(v);
-        return {
-          input: { profilePicture: v.variables.input.profilePicture + "1" },
-          // foo: (p) => `${v.variables.foo} - ${p.foo}`,
-        };
-        // return {
-        //   input: (v) => undefined,
-        // };
+      request: { query },
+      result: { data: { nonnullablesNonnullableScalars: ["foo"] } },
+    },
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nonnullablesNonnullableScalars: { 1: "foo" } },
+    }),
+    {
+      request: { query },
+      result: {
+        data: {
+          nonnullablesNonnullableScalars: ["scalar-String-Query", "foo"],
+        },
       },
     },
   );
-  console.log(serialize(foo.result));
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nonnullablesNonnullableScalars: { next: "foo" } },
+    }),
+    {
+      request: { query },
+      result: { data: { nonnullablesNonnullableScalars: ["foo"] } },
+    },
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nonnullablesNonnullableScalars: { next: "foo" } },
+    }, {
+      data: { nonnullablesNonnullableScalars: { next: "foo" } },
+    }),
+    {
+      request: { query },
+      result: { data: { nonnullablesNonnullableScalars: ["foo", "foo"] } },
+    },
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nonnullablesNonnullableScalars: { last: "bar" } },
+    }),
+    {
+      request: { query },
+      result: { data: { nonnullablesNonnullableScalars: ["bar"] } },
+    },
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nonnullablesNonnullableScalars: { next: "foo" } },
+    }, {
+      data: { nonnullablesNonnullableScalars: { last: "bar" } },
+    }),
+    {
+      request: { query },
+      result: { data: { nonnullablesNonnullableScalars: ["bar"] } },
+    },
+  );
 });
+
+Deno.test("operations > queries > nullableNonnullableScalars", () => {
+  const query = "query Foo { nullableNonnullableScalars }";
+  type Operation = { data: { nullableNonnullableScalars: string[] | null } };
+
+  assertEquals(operation<Operation>(definitions, scalars, query), {
+    request: { query },
+    result: { data: { nullableNonnullableScalars: null } },
+  });
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nullableNonnullableScalars: [] },
+    }),
+    {
+      request: { query },
+      result: { data: { nullableNonnullableScalars: [] } },
+    },
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nullableNonnullableScalars: ["foo"] },
+    }),
+    {
+      request: { query },
+      result: { data: { nullableNonnullableScalars: ["foo"] } },
+    },
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nullableNonnullableScalars: { 1: "foo" } },
+    }),
+    {
+      request: { query },
+      result: {
+        data: { nullableNonnullableScalars: ["scalar-String-Query", "foo"] },
+      },
+    },
+  );
+});
+
+Deno.test("operations > queries > nullableNullableScalars", () => {
+  const query = "query Foo { nullableNullableScalars }";
+  type Operation = {
+    data: { nullableNullableScalars: (string | null)[] | null };
+  };
+
+  assertEquals(operation<Operation>(definitions, scalars, query), {
+    request: { query },
+    result: { data: { nullableNullableScalars: null } },
+  });
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nullableNullableScalars: [] },
+    }),
+    {
+      request: { query },
+      result: { data: { nullableNullableScalars: [] } },
+    },
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nullableNullableScalars: ["foo"] },
+    }),
+    {
+      request: { query },
+      result: { data: { nullableNullableScalars: ["foo"] } },
+    },
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nullableNullableScalars: { 1: "foo" } },
+    }),
+    {
+      request: { query },
+      result: { data: { nullableNullableScalars: [null, "foo"] } },
+    },
+  );
+});
+
+Deno.test(
+  "operations > queries > nonnullablesNonnullableNonnullableScalars",
+  () => {
+    const query = "query Foo { nonnullablesNonnullableNonnullableScalars }";
+    type Operation = {
+      data: {
+        nonnullablesNonnullableNonnullableScalars: ((string | null)[] | null)[];
+      };
+    };
+
+    assertEquals(operation<Operation>(definitions, scalars, query), {
+      request: { query },
+      result: { data: { nonnullablesNonnullableNonnullableScalars: [] } },
+    });
+
+    assertEquals(
+      operation<Operation>(definitions, scalars, query, {
+        data: { nonnullablesNonnullableNonnullableScalars: [] },
+      }),
+      {
+        request: { query },
+        result: { data: { nonnullablesNonnullableNonnullableScalars: [] } },
+      },
+    );
+
+    assertEquals(
+      operation<Operation>(definitions, scalars, query, {
+        data: { nonnullablesNonnullableNonnullableScalars: [["foo"]] },
+      }),
+      {
+        request: { query },
+        result: {
+          data: { nonnullablesNonnullableNonnullableScalars: [["foo"]] },
+        },
+      },
+    );
+
+    assertEquals(
+      operation<Operation>(definitions, scalars, query, {
+        data: {
+          nonnullablesNonnullableNonnullableScalars: { 1: { 1: "foo" } },
+        },
+      }),
+      {
+        request: { query },
+        result: {
+          data: {
+            nonnullablesNonnullableNonnullableScalars: [[], [
+              "scalar-String-Query",
+              "foo",
+            ]],
+          },
+        },
+      },
+    );
+  },
+);
+
+Deno.test(
+  "operations > queries > nullableNullableNullableScalars",
+  () => {
+    const query = "query Foo { nullableNullableNullableScalars }";
+    type Operation = {
+      data: {
+        nullableNullableNullableScalars: ((string | null)[] | null)[] | null;
+      };
+    };
+
+    assertEquals(operation<Operation>(definitions, scalars, query), {
+      request: { query },
+      result: { data: { nullableNullableNullableScalars: null } },
+    });
+
+    assertEquals(
+      operation<Operation>(definitions, scalars, query, {
+        data: { nullableNullableNullableScalars: [] },
+      }),
+      {
+        request: { query },
+        result: { data: { nullableNullableNullableScalars: [] } },
+      },
+    );
+
+    assertEquals(
+      operation<Operation>(definitions, scalars, query, {
+        data: { nullableNullableNullableScalars: [["foo"]] },
+      }),
+      {
+        request: { query },
+        result: { data: { nullableNullableNullableScalars: [["foo"]] } },
+      },
+    );
+
+    assertEquals(
+      operation<Operation>(definitions, scalars, query, {
+        data: { nullableNullableNullableScalars: { 1: { 1: "foo" } } },
+      }),
+      {
+        request: { query },
+        result: {
+          data: { nullableNullableNullableScalars: [null, [null, "foo"]] },
+        },
+      },
+    );
+  },
+);
+
+Deno.test("operations > queries > aliasing", () => {
+  const query = "query Foo { foo: nonnullableScalar }";
+  type Operation = { data: { foo: string } };
+
+  assertEquals(operation<Operation>(definitions, scalars, query), {
+    request: { query },
+    result: { data: { foo: "scalar-String-Query" } },
+  });
+});
+
+Deno.test("operations > queries > objects", async () => {
+  const query = await Deno.readTextFile("examples/board/GetNode.gql");
+
+  assertEquals(
+    operation<Query["GetNode"]>(definitions, scalars, query).result,
+    {
+      data: {
+        node: {
+          __typename: "User",
+          email: "scalar-String-User",
+          id: "scalar-ID-User",
+          name: "scalar-String-User",
+        },
+      },
+    },
+  );
+
+  assertEquals(
+    operation<Query["GetNode"]>(definitions, scalars, query, {
+      data: { node: { title: "yoo" } },
+    }).result,
+    {
+      data: {
+        node: {
+          __typename: "Post",
+          content: "scalar-String-Post",
+          // Type is User because prev didn't have a hint
+          id: "scalar-ID-User",
+          title: "yoo",
+        },
+      },
+    },
+  );
+});
+
+// operations > queries > objects > deep aliasing
+// operations > queries > variables
+// operations > queries > error
+// operations > queries > errors
+// operations > mutations
+// operations > subscriptions
+
+// Deno.test("operations > mutations > basic", async () => {
+//   const query = await Deno.readTextFile("examples/board/CreateUser.gql");
+//   assertEquals(
+//     serialize(operation<Mutation["CreateUser"]>(
+//       definitions,
+//       scalars,
+//       query,
+//       // {},
+//       // { variables: { input: { profilePicture: "yoo!" } } },
+//       // {
+//       //   variables: (v) => {
+//       //     // console.log(v);
+//       //     return {
+//       //       input: { profilePicture: v.variables.input.profilePicture + "1" },
+//       //       // foo: (p) => `${v.variables.foo} - ${p.foo}`,
+//       //     };
+//       //     // return {
+//       //     //   input: (v) => undefined,
+//       //     // };
+//       //   },
+//       // },
+//     )),
+//     {
+//       request: {
+//         query,
+//         variables: {
+//           foo: "scalar-ID-CreateUser",
+//           input: {
+//             email: "scalar-String-CreateUserInput",
+//             name: "scalar-String-CreateUserInput",
+//             profilePicture: null,
+//             role: "ADMIN",
+//           },
+//         },
+//       },
+//       result: {
+//         data: {
+//           createUser2: {
+//             __typename: "User",
+//             createdAt: "scalar-DateTime-User",
+//             foo: "scalar-String-User",
+//             id: "scalar-ID-User",
+//             name: "scalar-String-User",
+//             profilePicture: null,
+//             role: "ADMIN",
+//             ["posts" as any]: [],
+//           },
+//         },
+//       },
+//     },
+//   );
+//   // const foo = operation<{
+//   //   data: {
+//   //     myId: string;
+//   //   };
+//   // }>(
+//   //   definitions,
+//   //   scalars,
+//   //   "query Foo { myId }",
+//   //   {
+//   //     data: (p) => {
+//   //       // return {};
+//   //       return {
+//   //         myId: (p) => {
+//   //           return p.myId;
+//   //         },
+//   //       };
+//   //     },
+//   //   },
+//   //   // { data: { simple: "yo" } },
+//   // );
+//   // console.log(serialize(foo.result));
+// });

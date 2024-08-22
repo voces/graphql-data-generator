@@ -28,14 +28,6 @@ export const formatCode = async (input: string): Promise<string> => {
   } else return input;
 };
 
-export const serialize = <T>(proxy: T): T => {
-  if (!proxy || typeof proxy !== "object") return proxy;
-  if (Array.isArray(proxy)) return proxy.map(serialize) as T;
-  const obj: Partial<T> = {};
-  for (const prop in proxy) obj[prop] = serialize(proxy[prop]);
-  return obj as T;
-};
-
 export const absurd = (v: never) => {
   const error = new Error(`Unexpected value: ${v}`);
   Error.captureStackTrace(error, absurd);

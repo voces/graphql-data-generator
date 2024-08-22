@@ -2,12 +2,15 @@ import {
   ConstValueNode,
   DefinitionNode,
   EnumTypeDefinitionNode,
+  FragmentDefinitionNode,
   GraphQLError,
   InterfaceTypeDefinitionNode,
   Kind,
+  Location,
   NameNode,
   ObjectTypeDefinitionNode,
   OperationDefinitionNode,
+  SelectionSetNode,
   TypeNode,
 } from "npm:graphql";
 import { OperationMock, Patch } from "./types.ts";
@@ -16,18 +19,32 @@ import { absurd } from "./util.ts";
 
 type NamedDefinitionNode = DefinitionNode & { name: NameNode };
 
-const resolveType = (definitions: readonly DefinitionNode[], type: string) => {
-  console.log("resolveType", type);
-  const path = type.split(".");
+const builtInScalars = ["Int", "Float", "String", "Boolean", "ID"];
+
+const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
   let definition: (NamedDefinitionNode) | undefined;
+  let type: TypeNode | undefined;
   let parent: string | undefined;
-  for (const name of path) {
+  const parts = path.split(".");
+  for (let i = 0; i < parts.length; i++) {
+    const name = parts[i];
     if (!definition) {
       definition = definitions.find((d): d is NamedDefinitionNode =>
         "name" in d && d.name?.value === name
       );
+      if (!definition && builtInScalars.includes(name)) {
+        definition = {
+          kind: Kind.SCALAR_TYPE_DEFINITION,
+          name: { kind: Kind.NAME, value: name },
+        };
+      }
+      type = {
+        kind: Kind.NON_NULL_TYPE,
+        type: { kind: Kind.NAMED_TYPE, name: { kind: Kind.NAME, value: name } },
+      };
     } else {
       parent = definition.name.value;
+
       const field = "fields" in definition
         ? definition.fields?.find((f) => f.name.value === name)
         : undefined;
@@ -38,14 +55,22 @@ const resolveType = (definitions: readonly DefinitionNode[], type: string) => {
           }`,
         );
       }
-      let type = field.type;
-      while (type.kind !== Kind.NAMED_TYPE) type = type.type;
+      type = field.type;
+      let t = type;
+      while (t.kind !== Kind.NAMED_TYPE) t = t.type;
+      const namedType = t;
       definition = definitions.find((d): d is NamedDefinitionNode =>
-        "name" in d ? d.name?.value === type.name.value : false
+        "name" in d ? d.name?.value === namedType.name.value : false
       );
+      if (!definition && builtInScalars.includes(namedType.name.value)) {
+        definition = {
+          kind: Kind.SCALAR_TYPE_DEFINITION,
+          name: { kind: Kind.NAME, value: namedType.name.value },
+        };
+      }
       if (!definition) {
         throw new Error(
-          `Could not find type ${type.name.value}`,
+          `Could not find type ${name}${parent ? ` on ${parent}` : ""}`,
         );
       }
     }
@@ -55,7 +80,7 @@ const resolveType = (definitions: readonly DefinitionNode[], type: string) => {
       );
     }
   }
-  return { parent, definition };
+  return { parent, definition, type: type! };
 };
 
 const resolveConcreteType = <T>(
@@ -149,7 +174,6 @@ const resolveValue = <T>(
         `Missing scalar ${type.name.value}`,
       );
     }
-    // console.log("scalar", ctx.patches);
     const scalar = scalars[type.name.value];
     const value = typeof scalar === "function" ? scalar(ctx.hostType) : scalar;
     return value;
@@ -167,7 +191,6 @@ const resolveValue = <T>(
       definitions,
       scalars,
       fieldTypeDefinitions[0].name.value,
-      undefined,
       [],
     );
   }
@@ -177,15 +200,169 @@ const resolveValue = <T>(
   );
 };
 
+const humanize = <T>(value: T): Partial<T> => {
+  if (typeof value !== "object" || !value) return value;
+  // deno-lint-ignore no-explicit-any
+  if (Array.isArray(value)) return value.map(humanize) as any;
+  const obj: Partial<T> = {};
+  for (const field in value) {
+    if (field === "loc" && value[field as keyof T] instanceof Location) {
+      continue;
+    }
+    // deno-lint-ignore no-explicit-any
+    obj[field as keyof T] = humanize(value[field]) as any;
+  }
+  return obj;
+};
+
+const getSelectionSetSelection = (
+  definitions: readonly DefinitionNode[],
+  selectionSet: SelectionSetNode,
+  selection: string,
+  typename?: string,
+) => {
+  for (const s of selectionSet.selections) {
+    switch (s.kind) {
+      case Kind.FIELD:
+        if ((s.alias?.value ?? s.name.value) === selection) {
+          return s.selectionSet;
+        }
+        break;
+      case Kind.FRAGMENT_SPREAD: {
+        const definition = definitions.find((d): d is FragmentDefinitionNode =>
+          "name" in d && d.name?.value === s.name.value &&
+          d.kind === Kind.FRAGMENT_DEFINITION
+        );
+        if (!definition) {
+          throw new Error(`Could not find fragment ${s.name.value}`);
+        }
+        return getSelectionSetSelection(
+          definitions,
+          definition.selectionSet,
+          selection,
+          typename,
+        );
+      }
+      case Kind.INLINE_FRAGMENT: {
+        if (
+          !s.typeCondition || !typename ||
+          s.typeCondition.name.value === typename
+        ) {
+          return getSelectionSetSelection(
+            definitions,
+            s.selectionSet,
+            selection,
+            typename,
+          );
+        }
+      }
+    }
+  }
+};
+
+const selectionSetToKeys = (
+  definitions: readonly DefinitionNode[],
+  selectionSet: SelectionSetNode,
+  typename: string,
+) => {
+  const keys: string[] = [];
+  for (const s of selectionSet.selections) {
+    switch (s.kind) {
+      case Kind.FIELD:
+        keys.push(s.alias?.value ?? s.name.value);
+        break;
+      case Kind.FRAGMENT_SPREAD: {
+        const definition = definitions.find((d): d is FragmentDefinitionNode =>
+          "name" in d && d.name?.value === s.name.value &&
+          d.kind === Kind.FRAGMENT_DEFINITION
+        );
+        if (!definition) {
+          throw new Error(`Could not find fragment ${s.name.value}`);
+        }
+        keys.push(
+          ...selectionSetToKeys(definitions, definition.selectionSet, typename),
+        );
+        break;
+      }
+      case Kind.INLINE_FRAGMENT: {
+        if (
+          !s.typeCondition || !typename ||
+          s.typeCondition.name.value === typename
+        ) {
+          keys.push(
+            ...selectionSetToKeys(definitions, s.selectionSet, typename),
+          );
+        }
+      }
+    }
+  }
+  return keys;
+};
+
 const _proxy = <T>(
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
-  type: string,
-  prev: T | undefined,
-  // selectionMap:
+  path: string,
   patches: Patch<T>[],
+  {
+    prev,
+    resolvedType = resolveType(definitions, path),
+    selectionSet,
+  }: {
+    prev?: T;
+    /** Used to handle lists */
+    resolvedType?: ReturnType<typeof resolveType>;
+    selectionSet?: SelectionSetNode;
+  } = {},
 ): T => {
-  const { parent = type, definition } = resolveType(definitions, type);
+  const { parent = path, definition } = resolvedType;
+  let type = resolvedType.type;
+
+  if (type.kind !== Kind.NON_NULL_TYPE) {
+    if (!patches.length) return (prev ?? null) as T;
+  } else type = type.type;
+
+  if (type.kind === Kind.LIST_TYPE) {
+    if (!patches.length) return (prev ?? []) as T;
+
+    const value = (patches.at(-1) ?? []) as Array<unknown>;
+    const previousArray = (prev ?? []) as Array<unknown>;
+
+    const lastIndex = Math.max(previousArray.length - 1, 0);
+    const nextIndex = previousArray.length;
+    const length = typeof value.length === "number" ? value.length : Math.max(
+      previousArray.length,
+      ...Object.keys(value).map((v) => {
+        const i = parseInt(v);
+        if (!Number.isNaN(i)) return i + 1;
+        if (v === "last") return lastIndex + 1;
+        if (v === "next") return nextIndex + 1;
+        if (v === "length") return 0;
+        throw new Error(`Unhandled array index ${v}`);
+      }),
+    );
+    const arr = [] as T[keyof T] & unknown[];
+    for (let i = 0; i < length; i++) {
+      arr[i] = _proxy(
+        definitions,
+        scalars,
+        path,
+        [
+          value[i],
+          i === lastIndex ? (value as { last?: number }).last : undefined,
+          i === nextIndex ? (value as { next?: number }).next : undefined,
+        ].filter((v) => v != null),
+        {
+          prev: previousArray[i],
+          resolvedType: { ...resolvedType, type: type.type },
+          selectionSet,
+        },
+      );
+    }
+
+    return arr as T;
+  }
+
   if (!definition) throw new Error(`Could not find definition '${name}'`);
 
   switch (definition.kind) {
@@ -193,13 +370,9 @@ const _proxy = <T>(
     case Kind.OBJECT_TYPE_DEFINITION: {
       if (!prev) {
         prev = patches.length
-          ? _proxy(
-            definitions,
-            scalars,
-            parent,
-            undefined,
-            patches.slice(0, -1),
-          )
+          ? _proxy(definitions, scalars, parent, patches.slice(0, -1), {
+            selectionSet,
+          })
           : undefined;
       }
 
@@ -225,50 +398,18 @@ const _proxy = <T>(
               : field.type;
 
             if (nonNullFieldType.kind === Kind.LIST_TYPE) {
-              const previousArray =
-                (prev?.[prop as keyof T] ?? []) as unknown[];
-              if (Array.isArray(value)) {
-                return target[prop as keyof T] = value.map((v, i) =>
-                  _proxy(
-                    definitions,
-                    scalars,
-                    `${type}.${prop}`,
-                    previousArray[i],
-                    v ? [v] : [],
-                  )
-                ) as T[keyof T];
-              } else {
-                const lastIndex = Math.max(previousArray.length - 1, 0);
-                const nextIndex = previousArray.length;
-                const length = typeof value.length === "number"
-                  ? value.length
-                  : Math.max(
-                    previousArray.length,
-                    ...Object.keys(value).map((v) => {
-                      const i = parseInt(v);
-                      if (!Number.isNaN(i)) return i + 1;
-                      if (v === "last") return lastIndex + 1;
-                      if (v === "next") return nextIndex + 1;
-                      if (v === "length") return 0;
-                      throw new Error(`Unhandled array index ${v}`);
-                    }),
-                  );
-                const arr = [] as T[keyof T] & unknown[];
-                for (let i = 0; i < length; i++) {
-                  arr[i] = _proxy(
-                    definitions,
-                    scalars,
-                    `${type}.${prop}`,
-                    previousArray[i],
-                    [
-                      value[i],
-                      i === lastIndex ? value.last : undefined,
-                      i === nextIndex ? value.next : undefined,
-                    ].filter((v) => v != null),
-                  );
-                }
-                return target[prop as keyof T] = arr;
-              }
+              return target[prop as keyof T] = _proxy(
+                definitions,
+                scalars,
+                `${path}.${prop}`,
+                [value],
+                {
+                  prev: prev?.[prop as keyof T],
+                  selectionSet: selectionSet
+                    ? getSelectionSetSelection(definitions, selectionSet, prop)
+                    : undefined,
+                },
+              );
             }
 
             type Child = T[keyof T];
@@ -279,8 +420,13 @@ const _proxy = <T>(
               definitions,
               scalars,
               `${parent}.${prop}`,
-              undefined,
               childPatches,
+              {
+                prev: prev?.[prop as keyof T],
+                selectionSet: selectionSet
+                  ? getSelectionSetSelection(definitions, selectionSet, prop)
+                  : undefined,
+              },
             );
           }
 
@@ -289,8 +435,13 @@ const _proxy = <T>(
           }
         }
 
-        // Get from prev proxy if available
-        if (prev) return target[prop as keyof T] = prev[prop as keyof T];
+        // Get from prev proxy if available; we check if prop in prev for
+        // typename changes due to interfaces (we don't predict typename ahead
+        // of time, since that's tedious...; could maybe use a custom Array that
+        // keeps a reference to the full array after slices)
+        if (prev && prop in (prev as Record<string, unknown>)) {
+          return target[prop as keyof T] = prev[prop as keyof T];
+        }
 
         // Otherwise generate it from type
         return target[prop as keyof T] = resolveValue(
@@ -301,18 +452,28 @@ const _proxy = <T>(
         ) as T[keyof T];
       };
 
+      const keys = [
+        ...(definition.kind === Kind.OBJECT_TYPE_DEFINITION
+          ? ["__typename"]
+          : []),
+        ...(selectionSet
+          ? selectionSetToKeys(
+            definitions,
+            selectionSet,
+            definition.name.value,
+          )
+          : definition.fields?.map((f) => f.name.value) ?? []),
+      ];
+
       return new Proxy({}, {
         get: getProp,
         set: (prev, prop, value) => {
           (prev as T & object)[prop as keyof T] = value;
           return true;
         },
-        ownKeys: () => [
-          ...(definition.kind === Kind.OBJECT_TYPE_DEFINITION
-            ? ["__typename"]
-            : []),
-          ...definition.fields?.map((f) => f.name.value) ?? [],
-        ],
+        ownKeys: () => keys,
+        has: (target, prop) =>
+          typeof prop === "string" ? keys.includes(prop) : prop in target,
         getOwnPropertyDescriptor: (target, prop) =>
           prop === "__typename" ||
             (definition.fields?.some((f) => f.name.value === prop) ??
@@ -327,18 +488,16 @@ const _proxy = <T>(
       }) as T;
     }
     case Kind.INTERFACE_TYPE_DEFINITION: {
+      // When creating prev, we need hint the desired type...
       const concreteType = resolveConcreteType(
         definitions,
         definition,
         patches,
       );
-      return _proxy(
-        definitions,
-        scalars,
-        concreteType.name.value,
-        undefined,
-        patches,
-      );
+      return _proxy(definitions, scalars, concreteType.name.value, patches, {
+        prev,
+        selectionSet,
+      });
     }
     case Kind.OPERATION_DEFINITION: {
       type Mock = {
@@ -352,13 +511,10 @@ const _proxy = <T>(
         ? _proxy<Mock>(
           definitions,
           scalars,
-          type,
-          undefined,
+          path,
           patches.slice(0, -1) as Patch<Mock>[],
         )
         : undefined;
-
-      // console.log("prev", prev);
 
       const mock: Mock = { data: null };
       const patch = patches[patches.length - 1] as Patch<Mock> | undefined;
@@ -386,8 +542,8 @@ const _proxy = <T>(
                 definitions,
                 scalars,
                 namedVariableType.name.value,
-                prev?.variables?.[name],
                 [value],
+                { prev: prev?.variables?.[name] },
               );
               continue;
             }
@@ -412,7 +568,7 @@ const _proxy = <T>(
           definitions,
           scalars,
           variableDefinition.type,
-          { hostType: type, prop: name },
+          { hostType: path, prop: name },
         );
         if (result != null) {
           if (!mock.variables) mock.variables = {};
@@ -430,9 +586,10 @@ const _proxy = <T>(
             const prop = selection.alias?.value ?? selection.name.value;
             const rawValue = dataPatch?.[prop];
             const value = typeof rawValue === "function"
-              ? rawValue(prev)
+              ? rawValue(prev?.data)
               : rawValue;
             if (!mock.data) mock.data = {};
+            // Query, Mutation, Subscription
             const operationKey = definition.operation[0].toUpperCase() +
               definition.operation.slice(1);
 
@@ -440,8 +597,11 @@ const _proxy = <T>(
               definitions,
               scalars,
               `${operationKey}.${selection.name.value}`,
-              null,
-              value ? [value] : [],
+              value != null ? [value] : [],
+              {
+                prev: prev?.data?.[prop],
+                selectionSet: selection.selectionSet,
+              },
             );
 
             // console.log(selection.name.value, selection.alias?.value);
@@ -477,12 +637,15 @@ const _proxy = <T>(
       return mock as T;
     }
     case Kind.SCALAR_TYPE_DEFINITION: {
+      const patch = patches[patches.length - 1];
+      if (patch != null) return patch as T;
+      if (prev != null) return prev;
+
       if (!(definition.name.value in scalars)) {
         throw new Error(
           `Missing scalar ${definition.name.value}`,
         );
       }
-      // console.log("scalar", ctx.patches);
       const scalar = scalars[definition.name.value];
       const value = typeof scalar === "function" ? scalar(parent) : scalar;
       return value;
@@ -497,7 +660,7 @@ export const proxy = <T>(
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   type: string,
   ...patches: Patch<T>[]
-): T => _proxy(definitions, scalars, type, undefined, patches);
+): T => _proxy(definitions, scalars, type, patches);
 
 const constToValue = (value: ConstValueNode): unknown => {
   switch (value.kind) {
@@ -571,7 +734,6 @@ export const operation = <
     [...definitions, ...document.definitions],
     scalars,
     operation.name.value,
-    undefined,
     patches,
   );
 

@@ -73,7 +73,16 @@ type Query {
   posts: [Post!]!
   search(term: String!): [SearchResult!]!
   node(id: ID!): Node!
-  simple: URL
+
+  nonnullableScalar: String!
+  nullableScalar: String
+
+  nonnullablesNonnullableScalars: [String!]!
+  nullableNonnullableScalars: [String!]
+  nullableNullableScalars: [String]
+
+  nonnullablesNonnullableNonnullableScalars: [[String!]!]!
+  nullableNullableNullableScalars: [[String]]
 }
 
 # Mutation type
