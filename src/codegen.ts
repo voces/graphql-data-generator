@@ -322,7 +322,7 @@ const getOperationVariables = (
   optional: false,
 });
 
-const serializeType = (type: SerializableType): string => {
+const serializeType = (type: SerializableType, variables = false): string => {
   switch (type.kind) {
     case "Name":
       return `${type.value}${type.optional ? " | null" : ""}`;
@@ -333,27 +333,31 @@ const serializeType = (type: SerializableType): string => {
           ((type.value.conditionals?.length ?? 0) -
             (Object.keys(type.value.value).length ? 0 : 1)))
       ) {
-        return `(${serializeType(type.value)})[]${
+        return `(${serializeType(type.value, variables)})[]${
           type.optional ? " | null" : ""
         }`;
       }
-      return `${serializeType(type.value)}[]${type.optional ? " | null" : ""}`;
+      return `${serializeType(type.value, variables)}[]${
+        type.optional ? " | null" : ""
+      }`;
     case "Object": {
       const content = Object.entries(type.value).map(([key, value]) =>
-        `${key}: ${serializeType(value)}`
+        `${key}${value.optional && variables ? "?" : ""}: ${
+          serializeType(value, variables)
+        }`
       ).join(", ");
       const ands = [
         `{${content ? ` ${content} ` : ""}}`,
 
         ...(type.conditionals?.filter((c) =>
           c.kind !== "Object" || !c.value.__typename
-        )?.map((c) => `(${serializeType(c)} | {})`) ??
+        )?.map((c) => `(${serializeType(c, variables)} | {})`) ??
           []),
       ];
 
       const ors = type.conditionals
         ?.filter((c) => c.kind === "Object" && c.value.__typename)
-        .map((c) => serializeType(c)) ?? [];
+        .map((c) => serializeType(c, variables)) ?? [];
 
       if (type.nonExhaustive?.length && ors.length) {
         ors.push(
@@ -674,7 +678,7 @@ ${
     };${
             variables.kind === "Object" && Object.keys(variables.value).length
               ? `
-    variables: ${serializeType(variables)};`
+    variables: ${serializeType(variables, true)};`
               : ""
           }
   };`;

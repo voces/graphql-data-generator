@@ -83,6 +83,15 @@ type Query {
 
   nonnullablesNonnullableNonnullableScalars: [[String!]!]!
   nullableNullableNullableScalars: [[String]]
+
+  queryWithVariables(
+    nonnullableScalar: String!,
+    nullableScalar: String,
+    nonnullablesNonnullableScalars: [String!]!,
+    nullableNullableScalars: [String],
+    nonnullablesNonnullableNonnullableScalars: [[String!]!]!,
+    nullableNullableNullableScalars: [[String]],
+  ): Boolean
 }
 
 # Mutation type

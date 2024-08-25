@@ -13,7 +13,8 @@ import {
   SelectionSetNode,
   TypeNode,
 } from "npm:graphql";
-import { OperationMock, Patch } from "./types.ts";
+import { Patch } from "./types.ts";
+import { OperationMock } from "./_types.ts";
 import { parse } from "npm:graphql";
 import { absurd } from "./util.ts";
 
@@ -215,6 +216,49 @@ const humanize = <T>(value: T): Partial<T> => {
   return obj;
 };
 
+const getSelectionField = (
+  definitions: readonly DefinitionNode[],
+  selectionSet: SelectionSetNode,
+  selection: string,
+  typename?: string,
+) => {
+  for (const s of selectionSet.selections) {
+    switch (s.kind) {
+      case Kind.FIELD:
+        if ((s.alias?.value ?? s.name.value) === selection) return s;
+        break;
+      case Kind.FRAGMENT_SPREAD: {
+        const definition = definitions.find((d): d is FragmentDefinitionNode =>
+          "name" in d && d.name?.value === s.name.value &&
+          d.kind === Kind.FRAGMENT_DEFINITION
+        );
+        if (!definition) {
+          throw new Error(`Could not find fragment ${s.name.value}`);
+        }
+        return getSelectionField(
+          definitions,
+          definition.selectionSet,
+          selection,
+          typename,
+        );
+      }
+      case Kind.INLINE_FRAGMENT: {
+        if (
+          !s.typeCondition || !typename ||
+          s.typeCondition.name.value === typename
+        ) {
+          return getSelectionField(
+            definitions,
+            s.selectionSet,
+            selection,
+            typename,
+          );
+        }
+      }
+    }
+  }
+};
+
 const getSelectionSetSelection = (
   definitions: readonly DefinitionNode[],
   selectionSet: SelectionSetNode,
@@ -370,7 +414,7 @@ const _proxy = <T>(
     case Kind.OBJECT_TYPE_DEFINITION: {
       if (!prev) {
         prev = patches.length
-          ? _proxy(definitions, scalars, parent, patches.slice(0, -1), {
+          ? _proxy(definitions, scalars, path, patches.slice(0, -1), {
             selectionSet,
           })
           : undefined;
@@ -382,7 +426,18 @@ const _proxy = <T>(
         if (prop in target) return target[prop as keyof T];
         if (typeof prop === "symbol") return target[prop as keyof T];
 
-        const field = definition.fields?.find((f) => f.name.value === prop);
+        const selectionField = selectionSet && typeof prop === "string"
+          ? getSelectionField(
+            definitions,
+            selectionSet,
+            prop,
+          )
+          : undefined;
+        const unaliased = selectionField ? selectionField.name.value : prop;
+
+        const field = definition.fields?.find((f) =>
+          f.name.value === unaliased
+        );
         if (!field) return target[prop as keyof T];
 
         // Get from patch
@@ -476,13 +531,11 @@ const _proxy = <T>(
           typeof prop === "string" ? keys.includes(prop) : prop in target,
         getOwnPropertyDescriptor: (target, prop) =>
           prop === "__typename" ||
-            (definition.fields?.some((f) => f.name.value === prop) ??
-              false)
+            (typeof prop === "string" ? keys.includes(prop) : false)
             ? ({
               enumerable: true,
               configurable: true,
               value: getProp(target, prop),
-              // get: () => getProp(target, prop),
             })
             : Object.getOwnPropertyDescriptor(target, prop),
       }) as T;
@@ -543,7 +596,17 @@ const _proxy = <T>(
                 scalars,
                 namedVariableType.name.value,
                 [value],
-                { prev: prev?.variables?.[name] },
+                {
+                  prev: prev?.variables?.[name],
+                  resolvedType: {
+                    parent: `${path}Variables`,
+                    type: variableDefinition.type,
+                    definition: resolveType(
+                      definitions,
+                      namedVariableType.name.value,
+                    ).definition,
+                  },
+                },
               );
               continue;
             }
@@ -568,7 +631,7 @@ const _proxy = <T>(
           definitions,
           scalars,
           variableDefinition.type,
-          { hostType: path, prop: name },
+          { hostType: `${path}Variables`, prop: name },
         );
         if (result != null) {
           if (!mock.variables) mock.variables = {};
@@ -580,7 +643,6 @@ const _proxy = <T>(
         ? patch.data(prev!)
         : patch?.data;
       for (const selection of definition.selectionSet.selections ?? []) {
-        // console.log(selection.kind);
         switch (selection.kind) {
           case Kind.FIELD: {
             const prop = selection.alias?.value ?? selection.name.value;
@@ -604,7 +666,6 @@ const _proxy = <T>(
               },
             );
 
-            // console.log(selection.name.value, selection.alias?.value);
             continue;
           }
           case Kind.FRAGMENT_SPREAD:
@@ -687,25 +748,6 @@ const constToValue = (value: ConstValueNode): unknown => {
   }
 };
 
-// const _operation = <D extends Record<string, unknown>, V>(
-//   definitions: readonly DefinitionNode[],
-//   scalars: Record<string, unknown | ((typename: string) => unknown)>,
-//   query: string,
-//   document: DocumentNode,
-//   operation: OperationDefinitionNode,
-//   prev: OperationMock<D, V> | undefined,
-//   patches: Patch<{
-//     data: D;
-//     variables: V;
-//     error: Error;
-//     errors: GraphQLError[];
-//   }>[],
-// ): OperationMock<D, V> => {
-//   if (patches.length || !prev) {
-//     return null as unknown as OperationMock<D, V>;
-//   }
-// };
-
 export const operation = <
   O extends {
     data: Record<string, unknown>;
@@ -717,7 +759,10 @@ export const operation = <
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   query: string,
-  ...patches: Patch<O>[]
+  ...patches: (Patch<Omit<O, "error" | "errors">> & {
+    error?: O["error"];
+    errors?: O["errors"];
+  })[]
 ): OperationMock<O["data"], O["variables"]> => {
   const document = parse(query);
 
@@ -734,7 +779,7 @@ export const operation = <
     [...definitions, ...document.definitions],
     scalars,
     operation.name.value,
-    patches,
+    patches as Patch<O>[], // Ignore error/errors, they're not patches
   );
 
   const mock: OperationMock<O["data"], O["variables"]> = {
@@ -743,50 +788,12 @@ export const operation = <
   };
 
   if (result.variables) mock.request.variables = result.variables;
-  if (result.error) mock.error = result.error;
-  else if (result.data) mock.result.data = result.data;
+  if (result.error) {
+    mock.error = result.error instanceof Error
+      ? result.error
+      : Object.assign(new Error(), result.error);
+  } else if (result.data) mock.result.data = result.data;
   if (result.errors) mock.result.errors = result.errors;
 
   return mock;
-
-  // return _operation<O["data"], O["variables"]>(
-  //   definitions,
-  //   scalars,
-  //   query,
-  //   document,
-  //   operation,
-  //   undefined,
-  //   patches,
-  // );
-
-  // let variables: O["variables"] | null = null;
-  // if (operation.variableDefinitions?.length) {
-  //   const variablePatches = patches.map((p) => p.variables)
-  //     .filter((v): v is Patch<O["variables"]> => !!v);
-  //   variables = Object.fromEntries(
-  //     operation.variableDefinitions.map((vd) => {
-  //       return [
-  //         vd.variable.name.value,
-  //         // vd.defaultValue
-  //         //   ? constToValue(vd.defaultValue, variablePatches)
-  //         resolveValue(definitions, scalars, vd.type, {
-  //           hostType: `${operation.name?.value ?? "<<operation>>"}Variables`,
-  //           prop: vd.variable.name.value,
-  //           patches: variablePatches,
-  //         }),
-  //       ];
-  //     }),
-  //   );
-  // }
-
-  // const mock: OperationMock = {
-  //   request: {
-  //     query,
-  //   },
-  //   result: {},
-  // };
-
-  // if (variables) mock.request.variables = variables;
-
-  // return mock;
 };

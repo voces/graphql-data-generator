@@ -1,9 +1,9 @@
 query GetUserPosts($id: ID!) {
-  node(id: $id) {
-    id
+  user: node(id: $id) {
+    userId: id
     ... on User {
       posts {
-        id
+        postId: id
       }
     }
   }

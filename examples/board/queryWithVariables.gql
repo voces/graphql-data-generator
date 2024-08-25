@@ -1,0 +1,17 @@
+query queryWithVariables(
+  $nonnullableScalar: String!,
+  $nullableScalar: String,
+  $nonnullablesNonnullableScalars: [String!]!,
+  $nullableNullableScalars: [String],
+  $nonnullablesNonnullableNonnullableScalars: [[String!]!]!,
+  $nullableNullableNullableScalars: [[String]],
+) {
+  queryWithVariables(
+    nonnullableScalar: $nonnullableScalar,
+    nullableScalar: $nullableScalar,
+    nonnullablesNonnullableScalars: $nonnullablesNonnullableScalars,
+    nullableNullableScalars: $nullableNullableScalars,
+    nonnullablesNonnullableNonnullableScalars: $nonnullablesNonnullableNonnullableScalars,
+    nullableNullableNullableScalars: $nullableNullableNullableScalars,
+  )
+}

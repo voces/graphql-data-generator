@@ -19,9 +19,9 @@ import {
   OperationBuilder,
   OperationMock,
   Options,
-  Patch,
-} from "./types.ts";
+} from "./_types.ts";
 import { raise } from "./util.ts";
+import { Patch } from "./types.ts";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object";

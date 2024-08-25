@@ -1,4 +1,4 @@
-import { __Type, parse } from "npm:graphql";
+import { __Type, GraphQLError, parse } from "npm:graphql";
 import { operation, proxy } from "./proxy.ts";
 import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
 import { Inputs, Mutation, Query, Types } from "../examples/board/types.ts";
@@ -791,83 +791,149 @@ Deno.test("operations > queries > objects", async () => {
   );
 });
 
-// operations > queries > objects > deep aliasing
-// operations > queries > variables
-// operations > queries > error
-// operations > queries > errors
-// operations > mutations
-// operations > subscriptions
+Deno.test("operations > queries > objects > deep aliasing", async () => {
+  const query = await Deno.readTextFile("examples/board/GetUserPosts.gql");
 
-// Deno.test("operations > mutations > basic", async () => {
-//   const query = await Deno.readTextFile("examples/board/CreateUser.gql");
-//   assertEquals(
-//     serialize(operation<Mutation["CreateUser"]>(
-//       definitions,
-//       scalars,
-//       query,
-//       // {},
-//       // { variables: { input: { profilePicture: "yoo!" } } },
-//       // {
-//       //   variables: (v) => {
-//       //     // console.log(v);
-//       //     return {
-//       //       input: { profilePicture: v.variables.input.profilePicture + "1" },
-//       //       // foo: (p) => `${v.variables.foo} - ${p.foo}`,
-//       //     };
-//       //     // return {
-//       //     //   input: (v) => undefined,
-//       //     // };
-//       //   },
-//       // },
-//     )),
-//     {
-//       request: {
-//         query,
-//         variables: {
-//           foo: "scalar-ID-CreateUser",
-//           input: {
-//             email: "scalar-String-CreateUserInput",
-//             name: "scalar-String-CreateUserInput",
-//             profilePicture: null,
-//             role: "ADMIN",
-//           },
-//         },
-//       },
-//       result: {
-//         data: {
-//           createUser2: {
-//             __typename: "User",
-//             createdAt: "scalar-DateTime-User",
-//             foo: "scalar-String-User",
-//             id: "scalar-ID-User",
-//             name: "scalar-String-User",
-//             profilePicture: null,
-//             role: "ADMIN",
-//             ["posts" as any]: [],
-//           },
-//         },
-//       },
-//     },
-//   );
-//   // const foo = operation<{
-//   //   data: {
-//   //     myId: string;
-//   //   };
-//   // }>(
-//   //   definitions,
-//   //   scalars,
-//   //   "query Foo { myId }",
-//   //   {
-//   //     data: (p) => {
-//   //       // return {};
-//   //       return {
-//   //         myId: (p) => {
-//   //           return p.myId;
-//   //         },
-//   //       };
-//   //     },
-//   //   },
-//   //   // { data: { simple: "yo" } },
-//   // );
-//   // console.log(serialize(foo.result));
-// });
+  assertEquals(
+    operation<Query["GetUserPosts"]>(definitions, scalars, query).result,
+    {
+      data: {
+        user: { __typename: "User", userId: "scalar-ID-User", posts: [] },
+      },
+    },
+  );
+
+  assertEquals(
+    operation<Query["GetUserPosts"]>(definitions, scalars, query, {
+      data: { user: { posts: [{}] } },
+    }).result,
+    {
+      data: {
+        user: {
+          __typename: "User",
+          userId: "scalar-ID-User",
+          posts: [{ __typename: "Post", postId: "scalar-ID-Post" }],
+        },
+      },
+    },
+  );
+});
+
+Deno.test("operations > queries > variables", async () => {
+  const query = await Deno.readTextFile(
+    "examples/board/queryWithVariables.gql",
+  );
+
+  assertEquals(
+    operation<Query["queryWithVariables"]>(definitions, scalars, query).request
+      .variables,
+    {
+      nonnullableScalar: "scalar-String-queryWithVariablesVariables",
+      nonnullablesNonnullableScalars: [],
+      nonnullablesNonnullableNonnullableScalars: [],
+    },
+  );
+
+  assertEquals(
+    operation<Query["queryWithVariables"]>(definitions, scalars, query, {
+      variables: {
+        nonnullableScalar: "a",
+        nullableScalar: "b",
+        nonnullablesNonnullableScalars: { 1: "c" },
+        nullableNullableScalars: { 1: "d" },
+        nonnullablesNonnullableNonnullableScalars: { 1: { 1: "e" } },
+        nullableNullableNullableScalars: { 1: { 1: "f" } },
+      },
+    }).request.variables,
+    {
+      nonnullableScalar: "a",
+      nullableScalar: "b",
+      nonnullablesNonnullableScalars: [
+        "scalar-String-queryWithVariablesVariables",
+        "c",
+      ],
+      nullableNullableScalars: [null, "d"],
+      nonnullablesNonnullableNonnullableScalars: [[], [
+        "scalar-String-queryWithVariablesVariables",
+        "e",
+      ]],
+      nullableNullableNullableScalars: [null, [null, "f"]],
+    },
+  );
+});
+
+Deno.test("operations > queries > error", () => {
+  const query = "query Foo { nonnullableScalar }";
+  type Operation = { data: { nonnullableScalar: string }; error: Error };
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      error: new Error("oops"),
+    }),
+    { request: { query }, result: {}, error: new Error("oops") },
+  );
+});
+
+Deno.test("operations > queries > errors", () => {
+  const query = "query Foo { nonnullableScalar }";
+  type Operation = {
+    data: { nonnullableScalar: string };
+    errors: GraphQLError[];
+  };
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      errors: [new GraphQLError("oops")],
+    }),
+    {
+      request: { query },
+      result: {
+        // TODO: Should allow and default to null data if errors present, unless
+        // patched in
+        data: { nonnullableScalar: "scalar-String-Query" },
+        errors: [new GraphQLError("oops")],
+      },
+    },
+  );
+});
+
+Deno.test.only("operations > mutations", async () => {
+  const query = await Deno.readTextFile("examples/board/CreateUser.gql");
+
+  assertEquals(
+    operation<Mutation["CreateUser"]>(definitions, scalars, query, {
+      variables: { input: { name: "name" } },
+      data: { createUser2: { name: "name" } },
+    }),
+    {
+      request: {
+        query,
+        variables: {
+          input: {
+            email: "scalar-String-CreateUserInput",
+            name: "name",
+            role: "ADMIN",
+            // TODO: should be optional
+            profilePicture: null,
+          },
+          foo: "scalar-ID-CreateUserVariables",
+        },
+      },
+      result: {
+        data: {
+          createUser2: {
+            __typename: "User",
+            id: "scalar-ID-User",
+            name: "name",
+            foo: "scalar-String-User",
+            role: "ADMIN",
+            profilePicture: null,
+            createdAt: "scalar-DateTime-User",
+          },
+        },
+      },
+    },
+  );
+});
+
+// operations > subscriptions
