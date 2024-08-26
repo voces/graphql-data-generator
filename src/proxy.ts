@@ -13,8 +13,7 @@ import {
   SelectionSetNode,
   TypeNode,
 } from "npm:graphql";
-import { Patch } from "./types.ts";
-import { OperationMock } from "./_types.ts";
+import { OperationMock, Patch } from "./types.ts";
 import { parse } from "npm:graphql";
 import { absurd } from "./util.ts";
 
@@ -26,8 +25,14 @@ const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
   let definition: (NamedDefinitionNode) | undefined;
   let type: TypeNode | undefined;
   let parent: string | undefined;
-  const parts = path.split(".");
+  let kind: "field" | "argument" = "field";
+  const parts = path.split(/(\.\$|\.)/);
   for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === "." || parts[i] === ".$") {
+      kind = parts[i] === "." ? "field" : "argument";
+      i++;
+      if (i === parts.length) break;
+    }
     const name = parts[i];
     if (!definition) {
       definition = definitions.find((d): d is NamedDefinitionNode =>
@@ -46,17 +51,37 @@ const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
     } else {
       parent = definition.name.value;
 
-      const field = "fields" in definition
-        ? definition.fields?.find((f) => f.name.value === name)
-        : undefined;
-      if (!field) {
-        throw new Error(
-          `Could not find ${name} on ${
-            "name" in definition ? definition.name?.value : "<unknown>"
-          }`,
-        );
+      type = undefined;
+      if (kind === "field") {
+        const field = "fields" in definition
+          ? definition.fields?.find((f) => f.name.value === name)
+          : undefined;
+        if (!field) {
+          throw new Error(
+            `Could not find field ${name} on ${
+              "name" in definition ? definition.name?.value : "<unknown>"
+            }`,
+          );
+        }
+        type = field.type;
+      } else {
+        const argument = "arguments" in definition
+          ? definition.arguments?.find((a) => a.name.value === name)
+          : "variableDefinitions" in definition
+          ? definition.variableDefinitions?.find((v) =>
+            v.variable.name.value === name
+          )
+          : undefined;
+        if (!argument) {
+          throw new Error(
+            `Could not find argument ${name} on ${
+              "name" in definition ? definition.name?.value : "<unknown>"
+            }`,
+          );
+        }
+        type = argument.type;
       }
-      type = field.type;
+
       let t = type;
       while (t.kind !== Kind.NAMED_TYPE) t = t.type;
       const namedType = t;
@@ -87,7 +112,8 @@ const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
 const resolveConcreteType = <T>(
   definitions: readonly DefinitionNode[],
   definition: InterfaceTypeDefinitionNode,
-  patches: Patch<T>[],
+  patch?: Patch<T>,
+  prev?: T,
 ) => {
   const objectDefintions = definitions.filter((
     d,
@@ -120,13 +146,16 @@ const resolveConcreteType = <T>(
 
   if (options.length === 1) return options[0];
 
-  for (let i = patches.length - 1; i >= 0; i--) {
-    for (const field in patches[i]) {
-      options = options.filter((o) =>
-        o.fields?.some((f) => f.name.value === field)
-      );
-      if (options.length === 1) return options[0];
-    }
+  for (const field in patch) {
+    options = options.filter((o) =>
+      o.fields?.some((f) => f.name.value === field)
+    );
+    if (options.length === 1) return options[0];
+  }
+
+  if (prev && typeof prev === "object" && "__typename" in prev) {
+    const match = options.find((o) => o.name.value === prev.__typename);
+    if (match) return match;
   }
 
   if (options.length === 0) {
@@ -201,17 +230,17 @@ const resolveValue = <T>(
   );
 };
 
-const humanize = <T>(value: T): Partial<T> => {
+const gqlprint = <T>(value: T): Partial<T> => {
   if (typeof value !== "object" || !value) return value;
   // deno-lint-ignore no-explicit-any
-  if (Array.isArray(value)) return value.map(humanize) as any;
+  if (Array.isArray(value)) return value.map(gqlprint) as any;
   const obj: Partial<T> = {};
   for (const field in value) {
     if (field === "loc" && value[field as keyof T] instanceof Location) {
       continue;
     }
     // deno-lint-ignore no-explicit-any
-    obj[field as keyof T] = humanize(value[field]) as any;
+    obj[field as keyof T] = gqlprint(value[field]) as any;
   }
   return obj;
 };
@@ -347,7 +376,7 @@ const _proxy = <T>(
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   path: string,
-  patches: Patch<T>[],
+  patches: readonly (Patch<T> | ((prev: T) => Patch<T>))[],
   {
     prev,
     resolvedType = resolveType(definitions, path),
@@ -361,6 +390,19 @@ const _proxy = <T>(
 ): T => {
   const { parent = path, definition } = resolvedType;
   let type = resolvedType.type;
+
+  if (!prev) {
+    prev = patches.length
+      ? _proxy(definitions, scalars, path, patches.slice(0, -1), {
+        selectionSet,
+      })
+      : undefined;
+  }
+
+  const rawPatch = patches.length > 0 ? patches[patches.length - 1] : undefined;
+  const patch = typeof rawPatch === "function"
+    ? prev ? rawPatch(prev) : undefined
+    : rawPatch;
 
   if (type.kind !== Kind.NON_NULL_TYPE) {
     if (!patches.length) return (prev ?? null) as T;
@@ -412,19 +454,12 @@ const _proxy = <T>(
   switch (definition.kind) {
     case Kind.INPUT_OBJECT_TYPE_DEFINITION:
     case Kind.OBJECT_TYPE_DEFINITION: {
-      if (!prev) {
-        prev = patches.length
-          ? _proxy(definitions, scalars, path, patches.slice(0, -1), {
-            selectionSet,
-          })
-          : undefined;
-      }
-
       const getProp = (target: Partial<T>, prop: string | symbol) => {
         if (prop === "toJSON") return;
         if (prop === "__typename") return definition.name.value;
-        if (prop in target) return target[prop as keyof T];
-        if (typeof prop === "symbol") return target[prop as keyof T];
+        if (prop in target || typeof prop === "symbol") {
+          return target[prop as keyof T];
+        }
 
         const selectionField = selectionSet && typeof prop === "string"
           ? getSelectionField(
@@ -441,8 +476,8 @@ const _proxy = <T>(
         if (!field) return target[prop as keyof T];
 
         // Get from patch
-        if (patches.length > 0 && prop in patches[patches.length - 1]) {
-          const rawValue = patches[patches.length - 1][prop as keyof Patch<T>];
+        if (patches.length > 0 && patch && prop in patch) {
+          const rawValue = patch[prop as keyof Patch<T>];
           const value = typeof rawValue === "function"
             ? rawValue(prev)
             : rawValue;
@@ -507,7 +542,7 @@ const _proxy = <T>(
         ) as T[keyof T];
       };
 
-      const keys = [
+      const keys: string[] = [
         ...(definition.kind === Kind.OBJECT_TYPE_DEFINITION
           ? ["__typename"]
           : []),
@@ -522,8 +557,8 @@ const _proxy = <T>(
 
       return new Proxy({}, {
         get: getProp,
-        set: (prev, prop, value) => {
-          (prev as T & object)[prop as keyof T] = value;
+        set: (target, prop, value) => {
+          target[prop as keyof T] = value;
           return true;
         },
         ownKeys: () => keys,
@@ -535,6 +570,7 @@ const _proxy = <T>(
             ? ({
               enumerable: true,
               configurable: true,
+              writable: false,
               value: getProp(target, prop),
             })
             : Object.getOwnPropertyDescriptor(target, prop),
@@ -545,7 +581,8 @@ const _proxy = <T>(
       const concreteType = resolveConcreteType(
         definitions,
         definition,
-        patches,
+        patch,
+        prev,
       );
       return _proxy(definitions, scalars, concreteType.name.value, patches, {
         prev,
@@ -560,21 +597,15 @@ const _proxy = <T>(
         errors?: GraphQLError[];
       };
 
-      const prev = patches.length
-        ? _proxy<Mock>(
-          definitions,
-          scalars,
-          path,
-          patches.slice(0, -1) as Patch<Mock>[],
-        )
-        : undefined;
+      const mockPrev = prev as Mock | undefined;
+      const mockPatch = patch as Patch<Mock> | undefined;
 
       const mock: Mock = { data: null };
-      const patch = patches[patches.length - 1] as Patch<Mock> | undefined;
+      // const patch = patches[patches.length - 1] as Patch<Mock> | undefined;
 
-      const variablePatch = typeof patch?.variables === "function"
-        ? patch.variables(prev!)
-        : patch?.variables;
+      const variablePatch = typeof mockPatch?.variables === "function"
+        ? mockPatch.variables(mockPrev!)
+        : mockPatch?.variables;
       for (const variableDefinition of definition.variableDefinitions ?? []) {
         const name = variableDefinition.variable.name.value;
 
@@ -582,7 +613,7 @@ const _proxy = <T>(
           if (variablePatch && name in variablePatch) {
             const rawValue = variablePatch[name];
             const value = typeof rawValue === "function"
-              ? rawValue(prev!.variables)
+              ? rawValue(mockPrev!.variables)
               : rawValue;
             if (value && typeof value === "object") {
               let namedVariableType = variableDefinition.type;
@@ -594,10 +625,10 @@ const _proxy = <T>(
               mock.variables[name] = _proxy<unknown>(
                 definitions,
                 scalars,
-                namedVariableType.name.value,
+                `${path}.$${name}`,
                 [value],
                 {
-                  prev: prev?.variables?.[name],
+                  prev: mockPrev?.variables?.[name],
                   resolvedType: {
                     parent: `${path}Variables`,
                     type: variableDefinition.type,
@@ -639,16 +670,16 @@ const _proxy = <T>(
         }
       }
 
-      const dataPatch = typeof patch?.data === "function"
-        ? patch.data(prev!)
-        : patch?.data;
+      const dataPatch = typeof mockPatch?.data === "function"
+        ? mockPatch.data(mockPrev!)
+        : mockPatch?.data;
       for (const selection of definition.selectionSet.selections ?? []) {
         switch (selection.kind) {
           case Kind.FIELD: {
             const prop = selection.alias?.value ?? selection.name.value;
             const rawValue = dataPatch?.[prop];
             const value = typeof rawValue === "function"
-              ? rawValue(prev?.data)
+              ? rawValue(mockPrev?.data)
               : rawValue;
             if (!mock.data) mock.data = {};
             // Query, Mutation, Subscription
@@ -661,7 +692,7 @@ const _proxy = <T>(
               `${operationKey}.${selection.name.value}`,
               value != null ? [value] : [],
               {
-                prev: prev?.data?.[prop],
+                prev: mockPrev?.data?.[prop],
                 selectionSet: selection.selectionSet,
               },
             );
@@ -679,7 +710,7 @@ const _proxy = <T>(
       if (patch) {
         if ("error" in patch) {
           const value = typeof patch.error === "function"
-            ? patch.error(prev!)
+            ? patch.error(mockPrev!)
             : patch.error;
           // TODO: what if an actual error patch is passed?
           mock.error = value as Error;
@@ -687,7 +718,7 @@ const _proxy = <T>(
 
         if ("errors" in patch) {
           const rawErrors = typeof patch.errors === "function"
-            ? patch.errors(prev!)
+            ? patch.errors(mockPrev!)
             : patch.errors;
           if (Array.isArray(rawErrors) && rawErrors.length) {
             mock.errors = rawErrors as GraphQLError[];
@@ -720,7 +751,7 @@ export const proxy = <T>(
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   type: string,
-  ...patches: Patch<T>[]
+  ...patches: (Patch<T> | ((prev: T) => Patch<T>))[]
 ): T => _proxy(definitions, scalars, type, patches);
 
 const constToValue = (value: ConstValueNode): unknown => {

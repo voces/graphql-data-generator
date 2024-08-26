@@ -742,6 +742,7 @@ ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
   );
   serializedTypes.unshift(
     ...usedReferences.map((r) => {
+      // TODO: warn if missing and use unknown instead
       if (r.kind === "ScalarTypeDefinition") {
         return `type ${r.name.value} = ${
           scalars[r.name.value] ??

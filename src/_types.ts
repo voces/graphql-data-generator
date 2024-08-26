@@ -1,5 +1,5 @@
 import type { GraphQLError } from "npm:graphql";
-import { ObjectPatch } from "./types.ts";
+import { Patch } from "./types.ts";
 
 export type EmptyObject = Omit<{ foo: "string" }, "foo">;
 // export type EmptyObject = Record<string, never>;
@@ -19,8 +19,8 @@ export type Options<
   Data = unknown,
   Variables = Record<string, unknown> | never,
 > = {
-  data?: ObjectPatch<Data>;
-  variables?: ObjectPatch<Variables>;
+  data?: Patch<Data>;
+  variables?: Patch<Variables>;
   refetch?: boolean;
   optional?: boolean;
 };
@@ -35,7 +35,7 @@ export type OperationMock<
 };
 
 type Shift<T extends unknown[]> = T extends [infer _First, ...infer Rest] ? Rest
-  : never;
+  : [];
 
 type Collection<T, Transforms> = {
   readonly length: number;
@@ -61,20 +61,20 @@ export type OperationBuilder<
   & {
     variables: (
       variables:
-        | ObjectPatch<Variables>
-        | ((data: Data, variables: Variables) => ObjectPatch<Variables>),
+        | Patch<Variables>
+        | ((data: Data, variables: Variables) => Patch<Variables>),
     ) => OperationBuilderWithMock<Data, Variables, Transforms>;
     data: (
       data:
-        | ObjectPatch<Data>
-        | ((variables: Variables, data: Data) => ObjectPatch<Data>),
+        | Patch<Data>
+        | ((variables: Variables, data: Data) => Patch<Data>),
     ) => OperationBuilderWithMock<Data, Variables, Transforms>;
     patch: (
-      patch: ObjectPatch<{ data: Data; variables: Variables }>,
+      patch: Patch<{ data: Data; variables: Variables }>,
     ) => OperationBuilderWithMock<Data, Variables, Transforms>;
     /** Creates a clone of the mock. The clone is  */
     clone: (
-      patch?: ObjectPatch<{ data: Data; variables: Variables }>,
+      patch?: Patch<{ data: Data; variables: Variables }>,
     ) => OperationBuilderWithMock<Data, Variables, Transforms>;
   }
   & {
@@ -142,15 +142,17 @@ type ObjectTransforms<T, Transforms> =
   }
   & {
     patch: (
-      patch: ObjectPatch<T> | ((prev: T) => ObjectPatch<T>),
+      patch: Patch<T> | ((prev: T) => Patch<T>),
     ) => T & ObjectTransforms<T, Transforms>;
-    // clone: (patch: ObjectPatch<T, T>) => T & ObjectTransforms<T, Transforms>;
+    // clone: (patch: Patch<T, T>) => T & ObjectTransforms<T, Transforms>;
   };
 
 export type ObjectBuilder<T, Transforms> =
-  & ((data?: ObjectPatch<T>) => T & ObjectBuilder<T, Transforms>)
-  & ObjectTransforms<T, Transforms>
-  & Collection<T, Transforms>;
+  & ((
+    ...patches: (Patch<T> | ((previous: T) => Patch<T>))[]
+  ) => T & ObjectTransforms<T, Transforms>)
+  & ObjectTransforms<T, Transforms>;
+// & Collection<T, Transforms>;
 
 type CapitalizeFirst<S extends string> = S extends `${infer F}${infer R}`
   ? `${Uppercase<F>}${R}`
@@ -177,7 +179,7 @@ export type MapObjectsToTransforms<
       prev: Objects[Object],
       // deno-lint-ignore no-explicit-any
       ...args: any[]
-    ) => ObjectPatch<Objects[Object]>)
+    ) => Patch<Objects[Object]>)
   >;
 };
 
@@ -248,13 +250,13 @@ type FullSchemaType<T, Types> = "__typename" extends keyof T
   : T;
 
 type DefaultOperationTransform<T, Types> = {
-  data?: T extends { data: infer D } ? ObjectPatch<
+  data?: T extends { data: infer D } ? Patch<
       D
     > // FullSchemaType<D, Types> extends D ? FullSchemaType<D, Types> : D,
     // T extends { variables: infer V } ? [V]
     //   : []
     : never;
-  variables?: T extends { variables: infer V } ? ObjectPatch<V>
+  variables?: T extends { variables: infer V } ? Patch<V>
     : never;
 };
 
@@ -265,7 +267,7 @@ type OperationTransform<T, Types> = (
   },
   // deno-lint-ignore no-explicit-any
   ...args: any[]
-) => ObjectPatch<
+) => Patch<
   T
 > // FullSchemaType<T, Types> extends T ? FullSchemaType<T, Types> : T
 ;

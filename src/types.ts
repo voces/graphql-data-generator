@@ -1,3 +1,5 @@
+import { GraphQLError } from "npm:graphql";
+
 type ArrayPatch<T> =
   | Patch<T>[]
   | ({ [K in number]?: Patch<T> } & {
@@ -7,7 +9,7 @@ type ArrayPatch<T> =
     /** Patch the last value in the array. */
     last?: Patch<T>;
   });
-export type ObjectPatch<T> = {
+type ObjectPatch<T> = {
   [K in keyof T]?:
     | (T[K] extends object | null | undefined ? Patch<T[K]> : T[K])
     | ((
@@ -19,3 +21,12 @@ export type ObjectPatch<T> = {
 };
 export type Patch<T> = T extends (infer U)[] ? ArrayPatch<U>
   : ObjectPatch<T>;
+
+export type OperationMock<
+  Data extends Record<string, unknown> = Record<string, unknown>,
+  Variables = Record<string, unknown> | never,
+> = {
+  request: { query: string; variables?: Variables };
+  result: { data?: Data; errors?: GraphQLError[] };
+  error?: Error;
+};

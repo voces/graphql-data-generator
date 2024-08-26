@@ -6,7 +6,10 @@ import { Inputs, Mutation, Query, Types } from "../examples/board/types.ts";
 const schema = await Deno.readTextFile("examples/board/schema.graphql");
 const { definitions } = parse(schema);
 const scalars = new Proxy({}, {
-  get: (_, prop) => (t: string) => `scalar-${prop.toString()}-${t}`,
+  get: (_, prop) => (t: string) => {
+    if (t === "String") console.log("???", new Error().stack);
+    return `scalar-${prop.toString()}-${t}`;
+  },
   has: () => true,
 });
 
@@ -236,9 +239,9 @@ Deno.test("objects > incompatible patches goes with past patch", () => {
     ),
     {
       __typename: "Post",
-      id: "scalar-ID-Post",
+      id: "scalar-ID-User",
       title: "my-title",
-      createdAt: "scalar-DateTime-Post",
+      createdAt: "scalar-DateTime-User",
       content: "scalar-String-Post",
       author: {
         __typename: "User",
@@ -477,34 +480,34 @@ Deno.test("operations > queries > nullable scalar", () => {
   );
 });
 
-Deno.test("operations > queries > nonnullablesNonnullableScalars", () => {
-  const query = "query Foo { nonnullablesNonnullableScalars }";
-  type Operation = { data: { nonnullablesNonnullableScalars: string[] } };
+Deno.test("operations > queries > nonnullableNonnullableScalars", () => {
+  const query = "query Foo { nonnullableNonnullableScalars }";
+  type Operation = { data: { nonnullableNonnullableScalars: string[] } };
 
   assertEquals(operation<Operation>(definitions, scalars, query), {
     request: { query },
-    result: { data: { nonnullablesNonnullableScalars: [] } },
+    result: { data: { nonnullableNonnullableScalars: [] } },
   });
 
   assertEquals(
     operation<Operation>(definitions, scalars, query, {
-      data: { nonnullablesNonnullableScalars: ["foo"] },
+      data: { nonnullableNonnullableScalars: ["foo"] },
     }),
     {
       request: { query },
-      result: { data: { nonnullablesNonnullableScalars: ["foo"] } },
+      result: { data: { nonnullableNonnullableScalars: ["foo"] } },
     },
   );
 
   assertEquals(
     operation<Operation>(definitions, scalars, query, {
-      data: { nonnullablesNonnullableScalars: { 1: "foo" } },
+      data: { nonnullableNonnullableScalars: { 1: "foo" } },
     }),
     {
       request: { query },
       result: {
         data: {
-          nonnullablesNonnullableScalars: ["scalar-String-Query", "foo"],
+          nonnullableNonnullableScalars: ["scalar-String-Query", "foo"],
         },
       },
     },
@@ -512,45 +515,45 @@ Deno.test("operations > queries > nonnullablesNonnullableScalars", () => {
 
   assertEquals(
     operation<Operation>(definitions, scalars, query, {
-      data: { nonnullablesNonnullableScalars: { next: "foo" } },
+      data: { nonnullableNonnullableScalars: { next: "foo" } },
     }),
     {
       request: { query },
-      result: { data: { nonnullablesNonnullableScalars: ["foo"] } },
+      result: { data: { nonnullableNonnullableScalars: ["foo"] } },
     },
   );
 
   assertEquals(
     operation<Operation>(definitions, scalars, query, {
-      data: { nonnullablesNonnullableScalars: { next: "foo" } },
+      data: { nonnullableNonnullableScalars: { next: "foo" } },
     }, {
-      data: { nonnullablesNonnullableScalars: { next: "foo" } },
+      data: { nonnullableNonnullableScalars: { next: "foo" } },
     }),
     {
       request: { query },
-      result: { data: { nonnullablesNonnullableScalars: ["foo", "foo"] } },
+      result: { data: { nonnullableNonnullableScalars: ["foo", "foo"] } },
     },
   );
 
   assertEquals(
     operation<Operation>(definitions, scalars, query, {
-      data: { nonnullablesNonnullableScalars: { last: "bar" } },
+      data: { nonnullableNonnullableScalars: { last: "bar" } },
     }),
     {
       request: { query },
-      result: { data: { nonnullablesNonnullableScalars: ["bar"] } },
+      result: { data: { nonnullableNonnullableScalars: ["bar"] } },
     },
   );
 
   assertEquals(
     operation<Operation>(definitions, scalars, query, {
-      data: { nonnullablesNonnullableScalars: { next: "foo" } },
+      data: { nonnullableNonnullableScalars: { next: "foo" } },
     }, {
-      data: { nonnullablesNonnullableScalars: { last: "bar" } },
+      data: { nonnullableNonnullableScalars: { last: "bar" } },
     }),
     {
       request: { query },
-      result: { data: { nonnullablesNonnullableScalars: ["bar"] } },
+      result: { data: { nonnullableNonnullableScalars: ["bar"] } },
     },
   );
 });
@@ -640,38 +643,38 @@ Deno.test("operations > queries > nullableNullableScalars", () => {
 });
 
 Deno.test(
-  "operations > queries > nonnullablesNonnullableNonnullableScalars",
+  "operations > queries > nonnullableNonnullableNonnullableScalars",
   () => {
-    const query = "query Foo { nonnullablesNonnullableNonnullableScalars }";
+    const query = "query Foo { nonnullableNonnullableNonnullableScalars }";
     type Operation = {
       data: {
-        nonnullablesNonnullableNonnullableScalars: ((string | null)[] | null)[];
+        nonnullableNonnullableNonnullableScalars: ((string | null)[] | null)[];
       };
     };
 
     assertEquals(operation<Operation>(definitions, scalars, query), {
       request: { query },
-      result: { data: { nonnullablesNonnullableNonnullableScalars: [] } },
+      result: { data: { nonnullableNonnullableNonnullableScalars: [] } },
     });
 
     assertEquals(
       operation<Operation>(definitions, scalars, query, {
-        data: { nonnullablesNonnullableNonnullableScalars: [] },
+        data: { nonnullableNonnullableNonnullableScalars: [] },
       }),
       {
         request: { query },
-        result: { data: { nonnullablesNonnullableNonnullableScalars: [] } },
+        result: { data: { nonnullableNonnullableNonnullableScalars: [] } },
       },
     );
 
     assertEquals(
       operation<Operation>(definitions, scalars, query, {
-        data: { nonnullablesNonnullableNonnullableScalars: [["foo"]] },
+        data: { nonnullableNonnullableNonnullableScalars: [["foo"]] },
       }),
       {
         request: { query },
         result: {
-          data: { nonnullablesNonnullableNonnullableScalars: [["foo"]] },
+          data: { nonnullableNonnullableNonnullableScalars: [["foo"]] },
         },
       },
     );
@@ -679,14 +682,14 @@ Deno.test(
     assertEquals(
       operation<Operation>(definitions, scalars, query, {
         data: {
-          nonnullablesNonnullableNonnullableScalars: { 1: { 1: "foo" } },
+          nonnullableNonnullableNonnullableScalars: { 1: { 1: "foo" } },
         },
       }),
       {
         request: { query },
         result: {
           data: {
-            nonnullablesNonnullableNonnullableScalars: [[], [
+            nonnullableNonnullableNonnullableScalars: [[], [
               "scalar-String-Query",
               "foo",
             ]],
@@ -829,8 +832,8 @@ Deno.test("operations > queries > variables", async () => {
       .variables,
     {
       nonnullableScalar: "scalar-String-queryWithVariablesVariables",
-      nonnullablesNonnullableScalars: [],
-      nonnullablesNonnullableNonnullableScalars: [],
+      nonnullableNonnullableScalars: [],
+      nonnullableNonnullableNonnullableScalars: [],
     },
   );
 
@@ -839,21 +842,21 @@ Deno.test("operations > queries > variables", async () => {
       variables: {
         nonnullableScalar: "a",
         nullableScalar: "b",
-        nonnullablesNonnullableScalars: { 1: "c" },
+        nonnullableNonnullableScalars: { 1: "c" },
         nullableNullableScalars: { 1: "d" },
-        nonnullablesNonnullableNonnullableScalars: { 1: { 1: "e" } },
+        nonnullableNonnullableNonnullableScalars: { 1: { 1: "e" } },
         nullableNullableNullableScalars: { 1: { 1: "f" } },
       },
     }).request.variables,
     {
       nonnullableScalar: "a",
       nullableScalar: "b",
-      nonnullablesNonnullableScalars: [
+      nonnullableNonnullableScalars: [
         "scalar-String-queryWithVariablesVariables",
         "c",
       ],
       nullableNullableScalars: [null, "d"],
-      nonnullablesNonnullableNonnullableScalars: [[], [
+      nonnullableNonnullableNonnullableScalars: [[], [
         "scalar-String-queryWithVariablesVariables",
         "e",
       ]],
@@ -897,7 +900,7 @@ Deno.test("operations > queries > errors", () => {
   );
 });
 
-Deno.test.only("operations > mutations", async () => {
+Deno.test("operations > mutations", async () => {
   const query = await Deno.readTextFile("examples/board/CreateUser.gql");
 
   assertEquals(
@@ -937,3 +940,6 @@ Deno.test.only("operations > mutations", async () => {
 });
 
 // operations > subscriptions
+// scalar list?
+// interface list?
+// union list?

@@ -77,19 +77,19 @@ type Query {
   nonnullableScalar: String!
   nullableScalar: String
 
-  nonnullablesNonnullableScalars: [String!]!
+  nonnullableNonnullableScalars: [String!]!
   nullableNonnullableScalars: [String!]
   nullableNullableScalars: [String]
 
-  nonnullablesNonnullableNonnullableScalars: [[String!]!]!
+  nonnullableNonnullableNonnullableScalars: [[String!]!]!
   nullableNullableNullableScalars: [[String]]
 
   queryWithVariables(
     nonnullableScalar: String!,
     nullableScalar: String,
-    nonnullablesNonnullableScalars: [String!]!,
+    nonnullableNonnullableScalars: [String!]!,
     nullableNullableScalars: [String],
-    nonnullablesNonnullableNonnullableScalars: [[String!]!]!,
+    nonnullableNonnullableNonnullableScalars: [[String!]!]!,
     nullableNullableNullableScalars: [[String]],
   ): Boolean
 }
