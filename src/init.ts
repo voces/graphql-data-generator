@@ -1,4 +1,4 @@
-import { DefinitionNode, parse } from "npm:graphql";
+import { parse } from "npm:graphql";
 
 // If a collision is detected:
 // - Operations will be prefixed with their operation: queryFoo or mutateFoo
@@ -8,10 +8,9 @@ import {
   EmptyObject,
   MapObjectsToTransforms,
   MapOperationsToTransforms,
-  ObjectBuilder,
 } from "./_types.ts";
-import { Patch } from "./types.ts";
-import { proxy, withGetDefaultPatch } from "./proxy.ts";
+import { OperationMock, Patch, Shift } from "./types.ts";
+import { operation, proxy, withGetDefaultPatch } from "./proxy.ts";
 import { toObject } from "./util.ts";
 
 // const operationSchemas: Record<
@@ -484,6 +483,8 @@ type UntypedTransforms = Record<
 //   return builder as unknown as ObjectBuilder<unknown, unknown>;
 // };
 
+const files: Record<string, string> = {};
+
 // - Types will be suffixed with their type: fooQuery or fooMutation
 export const init = <
   Query extends Record<
@@ -564,7 +565,7 @@ export const init = <
   );
 
   type GenericPatch = Patch<(Types & Inputs)[keyof Types & string]>;
-  const addTransforms = (type: string, obj: unknown) => {
+  const addObjectTransforms = (type: string, obj: unknown) => {
     Object.defineProperty(obj, "patch", {
       value: (...patches: GenericPatch[]) =>
         build[type]!(
@@ -598,11 +599,11 @@ export const init = <
     );
 
   const objectBuilder = <T, K extends keyof FullBuild>(type: string) =>
-    addTransforms(type, (...patches: Patch<T>[]) => {
+    addObjectTransforms(type, (...patches: Patch<T>[]) => {
       if (transforms[type] && "default" in transforms[type]) {
         patches = [transforms[type].default as Patch<T>, ...patches];
       }
-      return addTransforms(type, wrap(type, patches));
+      return addObjectTransforms(type, wrap(type, patches));
     }) as FullBuild[K];
 
   for (const type of types) {
@@ -613,53 +614,98 @@ export const init = <
     build[input as keyof Inputs] = objectBuilder(input);
   }
 
-  // {
-  //   const nonQueryNames: string[] = [
-  //     ...Object.keys(mutations),
-  //     ...Object.keys(subscriptions),
-  //     ...types,
-  //     ...inputs,
-  //   ];
-  //   for (const query in query) {
-  //     const [key, value] = buildOperation(
-  //       query,
-  //       query[query],
-  //       "query",
-  //       nonQueryNames,
-  //       doc.definitions,
-  //       transforms as UntypedTransforms,
-  //       // deno-lint-ignore no-explicit-any
-  //       build as any,
-  //       scalars,
-  //     );
-  //     type K = keyof typeof build;
-  //     build[key as K] = value as typeof build[K];
-  //   }
-  // }
+  const resolveOperationConflicts = (
+    operation: string,
+    kind: string,
+    otherNames: string[],
+  ): keyof FullBuild => {
+    if (!otherNames.includes(operation)) return operation;
+    return `${kind}${name[0].toUpperCase()}${name.slice(1)}`;
+  };
 
-  // {
-  //   const nonMutationNames: string[] = [
-  //     ...Object.keys(query),
-  //     ...Object.keys(subscriptions),
-  //     ...types,
-  //     ...inputs,
-  //   ];
-  //   for (const mutation in mutations) {
-  //     const [key, value] = buildOperation(
-  //       mutation,
-  //       mutations[mutation],
-  //       "mutation",
-  //       nonMutationNames,
-  //       doc.definitions,
-  //       transforms as UntypedTransforms,
-  //       // deno-lint-ignore no-explicit-any
-  //       build as any,
-  //       scalars,
-  //     );
-  //     type K = keyof typeof build;
-  //     build[key as K] = value as typeof build[K];
-  //   }
-  // }
+  const addOperationTransforms = (operation: string, obj: unknown) => {
+    Object.defineProperty(obj, "patch", {
+      value: (...patches: GenericPatch[]) => {
+        const prev = (typeof obj === "function" ? obj() : obj) as OperationMock;
+        return build[operation]!(
+          {
+            data: prev.result.data,
+            variables: prev.request.variables,
+            error: prev.error,
+            errors: prev.result.errors,
+          } as any,
+          ...patches,
+        );
+      },
+    });
+    Object.defineProperties(
+      obj,
+      Object.fromEntries(
+        Object.entries(transforms[operation] ?? {}).map((
+          [name, fn],
+        ) => [name, {
+          value: (...args: unknown[]) => {
+            const prev = typeof obj === "function" ? obj() : obj;
+            const prevInput = {
+              data: prev.result.data,
+              variables: prev.request.variables,
+              error: prev.error,
+              errors: prev.result.errors,
+            };
+            const patch = (typeof fn === "function"
+              ? fn(prevInput as any, ...args)
+              : fn) as GenericPatch;
+            return build[operation]!(
+              prevInput as any,
+              patch as GenericPatch,
+            );
+          },
+        }]),
+      ),
+    );
+    return obj;
+  };
+
+  type OperationPatch = Shift<
+    Shift<Shift<Parameters<typeof operation>>>
+  >[number];
+  const operationBuilder = (name: string, path: string) =>
+    addOperationTransforms(name, (...patches: OperationPatch[]) => {
+      const query = files[path] ?? (files[path] = Deno.readTextFileSync(path));
+      if (transforms[name] && "default" in transforms[name]) {
+        patches = [transforms[name].default as OperationPatch, ...patches];
+      }
+      return addOperationTransforms(
+        name,
+        toObject(operation(doc.definitions, scalars, query, ...patches)),
+      );
+    }) as FullBuild[keyof FullBuild];
+
+  {
+    const nonQueryNames: string[] = [
+      ...Object.keys(mutations),
+      ...Object.keys(subscriptions),
+      ...types,
+      ...inputs,
+    ];
+    for (const query in queries) {
+      build[resolveOperationConflicts(query, "query", nonQueryNames)] =
+        operationBuilder(query, queries[query]) as any;
+    }
+  }
+
+  {
+    const nonMutationNames: string[] = [
+      ...Object.keys(queries),
+      ...Object.keys(subscriptions),
+      ...types,
+      ...inputs,
+    ];
+    for (const mutation in mutations) {
+      build[resolveOperationConflicts(mutation, "mutation", nonMutationNames)] =
+        operationBuilder(mutation, mutations[mutation]) as any;
+    }
+  }
 
   // Object.assign(
   //   transforms,

@@ -1,5 +1,6 @@
 {
     "tasks": {
-        "dev": "deno run -A --watch examples/generate.ts"
+        "dev": "deno run -A --watch examples/generate.ts",
+        "test": "deno test -A --watch"
     }
 }

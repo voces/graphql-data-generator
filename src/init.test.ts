@@ -12,7 +12,7 @@ import {
   types,
 } from "../examples/board/types.ts";
 import { init } from "./init.ts";
-import { Patch } from "./types.ts";
+import { OperationMockFromType, Patch } from "./types.ts";
 
 const schema = await Deno.readTextFile("examples/board/schema.graphql");
 const scalars = new Proxy({}, {
@@ -37,6 +37,16 @@ const build = init<Query, Mutation, Subscription, Types, Inputs>(
   },
   Post: {
     default: (u) => ({ content: `Post by ${u.author.name}` }),
+  },
+  queryWithVariables: {
+    default: { variables: { nullableNullableScalars: { 1: "ok" } } },
+    flip: { data: { queryWithVariables: (v) => !v.queryWithVariables } },
+  },
+  CreatePost: {
+    withAuthorId: (_, id: string) => ({
+      variables: { input: { authorId: id } },
+      data: { createPost: { author: { id } } },
+    }),
   },
 }));
 
@@ -91,7 +101,7 @@ Deno.test("objects > arg patch", () => {
   );
 });
 
-Deno.test("objects > patch transform", () => {
+Deno.test("objects > patch transform on object", () => {
   const user = build.User({ id: "my-id" });
   const extended = user.patch({ name: (u) => `${u.id}'s name` });
 
@@ -123,7 +133,27 @@ Deno.test("objects > patch transform", () => {
   );
 });
 
-Deno.test("objects > custom transfomrs", () => {
+Deno.test("objects > patch transform on builder", () => {
+  assertEquals<Types["User"]>(
+    build.User.patch({ name: (u) => `${u.id}'s name` }),
+    {
+      __typename: "User",
+      createdAt: "scalar-DateTime-User",
+      email: "scalar-String-User",
+      id: "scalar-ID-User",
+      name: "scalar-ID-User's name",
+      posts: [],
+      profilePicture: "https://example.com/scalar-ID-User.png",
+      role: "ADMIN",
+    },
+  );
+});
+
+Deno.test("objects > custom transform on object", () => {
+  assertEquals(build.User({ posts: [{}] }).withPost().posts.length, 2);
+});
+
+Deno.test("objects > custom transform on builder", () => {
   assertEquals<Types["User"]>(build.User.withPost(), {
     __typename: "User",
     createdAt: "scalar-DateTime-User",
@@ -150,8 +180,6 @@ Deno.test("objects > custom transfomrs", () => {
     profilePicture: "https://example.com/scalar-ID-User.png",
     role: "ADMIN",
   });
-
-  assertEquals(build.User().withPost().posts.length, 1);
 });
 
 Deno.test("inputs", () => {
@@ -179,3 +207,135 @@ Deno.test("inputs > arg patches", () => {
     },
   );
 });
+
+Deno.test("query", async () => {
+  assertEquals<OperationMockFromType<Query["queryWithVariables"]>>(
+    build.queryWithVariables(),
+    {
+      request: {
+        query: await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        variables: {
+          nonnullableScalar: "scalar-String-queryWithVariablesVariables",
+          nullableNullableScalars: [null, "ok"],
+          nonnullableNonnullableScalars: [],
+          nonnullableNonnullableNonnullableScalars: [],
+        },
+      },
+      result: { data: { queryWithVariables: null } },
+    },
+  );
+});
+
+Deno.test("query > arg patch", async () => {
+  assertEquals<OperationMockFromType<Query["queryWithVariables"]>>(
+    build.queryWithVariables({
+      variables: { nullableNullableNullableScalars: [] },
+      data: { queryWithVariables: () => true },
+    }),
+    {
+      request: {
+        query: await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        variables: {
+          nonnullableScalar: "scalar-String-queryWithVariablesVariables",
+          nullableNullableScalars: [null, "ok"],
+          nonnullableNonnullableScalars: [],
+          nullableNullableNullableScalars: [],
+          nonnullableNonnullableNonnullableScalars: [],
+        },
+      },
+      result: { data: { queryWithVariables: true } },
+    },
+  );
+});
+
+Deno.test("query > patch transform on object", async () => {
+  assertEquals<OperationMockFromType<Query["queryWithVariables"]>>(
+    build.queryWithVariables().patch({ data: { queryWithVariables: false } }),
+    {
+      request: {
+        query: await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        variables: {
+          nonnullableScalar: "scalar-String-queryWithVariablesVariables",
+          nullableNullableScalars: [null, "ok"],
+          nonnullableNonnullableScalars: [],
+          nonnullableNonnullableNonnullableScalars: [],
+        },
+      },
+      result: { data: { queryWithVariables: false } },
+    },
+  );
+});
+
+Deno.test("query > patch transform on builder", async () => {
+  assertEquals<OperationMockFromType<Query["queryWithVariables"]>>(
+    build.queryWithVariables.patch({ data: { queryWithVariables: false } }),
+    {
+      request: {
+        query: await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        variables: {
+          nonnullableScalar: "scalar-String-queryWithVariablesVariables",
+          nullableNullableScalars: [null, "ok"],
+          nonnullableNonnullableScalars: [],
+          nonnullableNonnullableNonnullableScalars: [],
+        },
+      },
+      result: { data: { queryWithVariables: false } },
+    },
+  );
+});
+
+Deno.test("query > custom transform on object", () => {
+  const o1 = build.queryWithVariables();
+  const o2 = o1.flip();
+  const o3 = o2.flip();
+
+  assertEquals(o1.result.data?.queryWithVariables, null);
+  assertEquals(o2.result.data?.queryWithVariables, true);
+  assertEquals(o3.result.data?.queryWithVariables, false);
+});
+
+Deno.test("query > custom transform on builder", () => {
+  assertEquals(
+    build.queryWithVariables.flip().result.data?.queryWithVariables,
+    true,
+  );
+});
+
+Deno.test("mutation", async () => {
+  assertEquals<OperationMockFromType<Mutation["CreatePost"]>>(
+    build.CreatePost({ data: { createPost: { id: "post-id" } } })
+      .withAuthorId("user-id"),
+    {
+      request: {
+        query: await Deno.readTextFile("examples/board/CreatePost.gql"),
+        variables: {
+          input: {
+            authorId: "user-id",
+            content: "scalar-String-CreatePostInput",
+            title: "scalar-String-CreatePostInput",
+          },
+        },
+      },
+      result: {
+        data: {
+          createPost: {
+            __typename: "Post",
+            author: {
+              __typename: "User",
+              id: "user-id",
+              name: "scalar-String-User",
+            },
+            content: "scalar-String-Post",
+            createdAt: "scalar-DateTime-Post",
+            id: "post-id",
+            title: "scalar-String-Post",
+          },
+        },
+      },
+    },
+  );
+});
+
+// subscription
+
+// fragments (inline & not)

@@ -13,7 +13,7 @@ import {
   SelectionSetNode,
   TypeNode,
 } from "npm:graphql";
-import { OperationMock, Patch } from "./types.ts";
+import { OperationMock, Patch, SimpleOperationMock } from "./types.ts";
 import { parse } from "npm:graphql";
 import { absurd } from "./util.ts";
 
@@ -192,7 +192,7 @@ const resolveValue = <T>(
   ctx: {
     hostType: string;
     prop: string;
-    // patches: Patch<T>[];
+    selectionSet?: SelectionSetNode;
   },
 ) => {
   if (type.kind !== Kind.NON_NULL_TYPE) return null;
@@ -240,6 +240,7 @@ const resolveValue = <T>(
       scalars,
       fieldTypeDefinitions[0].name.value,
       [],
+      { selectionSet: ctx.selectionSet },
     );
     const rawDefaultPatch = getDefaultPatch(type.name.value);
     const defaultPatch = typeof rawDefaultPatch === "function"
@@ -422,16 +423,14 @@ const _proxy = <T>(
   const { parent = path, definition } = resolvedType;
   let type = resolvedType.type;
 
-  if (!prev) {
-    prev = patches.length
-      ? _proxy(definitions, scalars, path, patches.slice(0, -1), {
-        selectionSet,
-      })
-      : undefined;
+  if (!prev && patches.length) {
+    prev = _proxy(definitions, scalars, path, patches.slice(0, -1), {
+      selectionSet,
+    });
   }
 
   const rawPatch = patches.length > 0 ? patches[patches.length - 1] : undefined;
-  let patch = typeof rawPatch === "function"
+  const patch = typeof rawPatch === "function"
     ? prev ? rawPatch(prev) : undefined
     : rawPatch;
 
@@ -574,7 +573,13 @@ const _proxy = <T>(
           definitions,
           scalars,
           field.type,
-          { hostType: definition.name.value, prop },
+          {
+            hostType: definition.name.value,
+            prop,
+            selectionSet: selectionSet
+              ? getSelectionSetSelection(definitions, selectionSet, prop)
+              : undefined,
+          },
         ) as T[keyof T];
       };
 
@@ -692,6 +697,12 @@ const _proxy = <T>(
             );
             continue;
           }
+        }
+
+        if (mockPrev?.variables && name in mockPrev.variables) {
+          if (!mock.variables) mock.variables = {};
+          mock.variables[name] = mockPrev.variables[name];
+          continue;
         }
 
         const result = resolveValue(
@@ -815,14 +826,7 @@ const constToValue = (value: ConstValueNode): unknown => {
   }
 };
 
-export const operation = <
-  O extends {
-    data: Record<string, unknown>;
-    variables?: Record<string, unknown>;
-    error?: Error;
-    errors?: GraphQLError[];
-  },
->(
+export const operation = <O extends SimpleOperationMock>(
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   query: string,
@@ -833,9 +837,9 @@ export const operation = <
 ): OperationMock<O["data"], O["variables"]> => {
   const document = parse(query);
 
-  const operations = document.definitions.filter((
-    d,
-  ): d is OperationDefinitionNode => d.kind === Kind.OPERATION_DEFINITION);
+  const operations = document.definitions.filter(
+    (d): d is OperationDefinitionNode => d.kind === Kind.OPERATION_DEFINITION,
+  );
   if (operations.length !== 1) {
     throw new Error(`Expected 1 operation, got ${operations.length}`);
   }
