@@ -65,8 +65,7 @@ Deno.test("objects", () => {
       id: "scalar-ID-User",
       name: "scalar-String-User",
       posts: [],
-      // THIS SHOULD BE SET?
-      profilePicture: null,
+      profilePicture: "https://example.com/scalar-ID-User.png",
       role: "ADMIN",
     },
     content: "Post by scalar-String-User",

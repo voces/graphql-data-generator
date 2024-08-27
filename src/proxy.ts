@@ -19,6 +19,24 @@ import { absurd } from "./util.ts";
 
 type NamedDefinitionNode = DefinitionNode & { name: NameNode };
 
+let getDefaultPatch = <T>(
+  __typename: string,
+): Patch<T> | ((prev: T) => Patch<T> | undefined) | undefined => undefined;
+export const withGetDefaultPatch = <T>(
+  newGetDefaultPatch: <U>(
+    __typename: string,
+  ) => Patch<U> | ((prev: U) => Patch<U> | undefined) | undefined,
+  fn: () => T,
+) => {
+  const prev = getDefaultPatch;
+  getDefaultPatch = newGetDefaultPatch;
+  try {
+    return fn();
+  } finally {
+    getDefaultPatch = prev;
+  }
+};
+
 const builtInScalars = ["Int", "Float", "String", "Boolean", "ID"];
 
 const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
@@ -217,12 +235,25 @@ const resolveValue = <T>(
   ) {
     // const childPatches = ctx.patches.map((p) => p[ctx.prop as keyof typeof p])
     //   .filter((v) => !!v && typeof v === "object") as Patch<T[keyof T]>[];
-    return _proxy<T[keyof T]>(
+    const base = _proxy<T[keyof T]>(
       definitions,
       scalars,
       fieldTypeDefinitions[0].name.value,
       [],
     );
+    const rawDefaultPatch = getDefaultPatch(type.name.value);
+    const defaultPatch = typeof rawDefaultPatch === "function"
+      ? rawDefaultPatch(base)
+      : rawDefaultPatch;
+    if (defaultPatch) {
+      return _proxy<T[keyof T]>(
+        definitions,
+        scalars,
+        fieldTypeDefinitions[0].name.value,
+        [base, defaultPatch],
+      );
+    }
+    return base;
   }
 
   throw new Error(
@@ -400,7 +431,7 @@ const _proxy = <T>(
   }
 
   const rawPatch = patches.length > 0 ? patches[patches.length - 1] : undefined;
-  const patch = typeof rawPatch === "function"
+  let patch = typeof rawPatch === "function"
     ? prev ? rawPatch(prev) : undefined
     : rawPatch;
 
@@ -475,6 +506,11 @@ const _proxy = <T>(
         );
         if (!field) return target[prop as keyof T];
 
+        // if (!patches.length) {
+        //   const rawDefaultPatch = getDefaultPatch(definition.name.value);
+        //   const defaultPatch = typeof rawDefaultPatch === "function" ?
+        // }
+
         // Get from patch
         if (patches.length > 0 && patch && prop in patch) {
           const rawValue = patch[prop as keyof Patch<T>];
@@ -509,7 +545,7 @@ const _proxy = <T>(
             return target[prop as keyof T] = _proxy<Child>(
               definitions,
               scalars,
-              `${parent}.${prop}`,
+              `${path}.${prop}`,
               childPatches,
               {
                 prev: prev?.[prop as keyof T],

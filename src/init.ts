@@ -11,7 +11,7 @@ import {
   ObjectBuilder,
 } from "./_types.ts";
 import { Patch } from "./types.ts";
-import { proxy } from "./proxy.ts";
+import { proxy, withGetDefaultPatch } from "./proxy.ts";
 import { toObject } from "./util.ts";
 
 // const operationSchemas: Record<
@@ -591,47 +591,27 @@ export const init = <
     return obj;
   };
 
-  for (const type of types) {
-    type K = keyof Types;
-    type T = Types[K];
+  const wrap = <T>(type: string, patches: Patch<T>[]) =>
+    withGetDefaultPatch(
+      <U>(type: string) => transforms[type]?.default as Patch<U>,
+      () => toObject(proxy<T>(doc.definitions, scalars, type, ...patches)),
+    );
 
-    build[type as K] = addTransforms(type, (...patches: Patch<T>[]) => {
+  const objectBuilder = <T, K extends keyof FullBuild>(type: string) =>
+    addTransforms(type, (...patches: Patch<T>[]) => {
       if (transforms[type] && "default" in transforms[type]) {
         patches = [transforms[type].default as Patch<T>, ...patches];
       }
-      return addTransforms(
-        type,
-        toObject(proxy<T>(doc.definitions, scalars, type, ...patches)),
-      );
+      return addTransforms(type, wrap(type, patches));
     }) as FullBuild[K];
+
+  for (const type of types) {
+    build[type as keyof Types] = objectBuilder(type);
   }
 
   for (const input of inputs) {
-    type K = keyof Inputs;
-    type T = Inputs[K];
-
-    build[input as K] = addTransforms(input, (...patches: Patch<T>[]) => {
-      if (transforms[input] && "default" in transforms[input]) {
-        patches = [transforms[input].default as Patch<T>, ...patches];
-      }
-      return addTransforms(
-        input,
-        toObject(proxy<T>(doc.definitions, scalars, input, ...patches)),
-      );
-    }) as FullBuild[K];
+    build[input as keyof Inputs] = objectBuilder(input);
   }
-
-  // for (const input of inputs) {
-  //   type K = keyof typeof build;
-  //   build[input as K] = buildObject(
-  //     input,
-  //     doc.definitions,
-  //     scalars,
-  //     // deno-lint-ignore no-explicit-any
-  //     build as any,
-  //     transforms as UntypedTransforms,
-  //   ) as typeof build[K];
-  // }
 
   // {
   //   const nonQueryNames: string[] = [
