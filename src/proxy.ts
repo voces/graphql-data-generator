@@ -12,6 +12,7 @@ import {
   OperationDefinitionNode,
   SelectionSetNode,
   TypeNode,
+  UnionTypeDefinitionNode,
 } from "npm:graphql";
 import { OperationMock, Patch, SimpleOperationMock } from "./types.ts";
 import { parse } from "npm:graphql";
@@ -129,7 +130,7 @@ const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
 
 const resolveConcreteType = <T>(
   definitions: readonly DefinitionNode[],
-  definition: InterfaceTypeDefinitionNode,
+  definition: InterfaceTypeDefinitionNode | UnionTypeDefinitionNode,
   patch?: Patch<T>,
   prev?: T,
 ) => {
@@ -150,9 +151,14 @@ const resolveConcreteType = <T>(
       if (
         objectDefintion.interfaces?.some((i) =>
           i.name.value === interfaceDefinition.name.value
-        )
+        ) ||
+        ("types" in interfaceDefinition &&
+          interfaceDefinition.types?.some((t) =>
+            t.name.value === objectDefintion.name.value
+          ))
       ) options.push(objectDefintion);
     }
+    // TODO: is this a thing...?
     for (const secondOrderInterfaceDefinition of interfaceDefintions) {
       if (
         secondOrderInterfaceDefinition.interfaces?.some((i) =>
@@ -617,6 +623,7 @@ const _proxy = <T>(
             : Object.getOwnPropertyDescriptor(target, prop),
       }) as T;
     }
+    case Kind.UNION_TYPE_DEFINITION:
     case Kind.INTERFACE_TYPE_DEFINITION: {
       // When creating prev, we need hint the desired type...
       const concreteType = resolveConcreteType(

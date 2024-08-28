@@ -12,7 +12,8 @@ import {
   types,
 } from "../examples/board/types.ts";
 import { init } from "./init.ts";
-import { OperationMockFromType, Patch } from "./types.ts";
+import { Patch } from "./types.ts";
+import { OperationMockFromType } from "./types.test.ts";
 
 const schema = await Deno.readTextFile("examples/board/schema.graphql");
 const scalars = new Proxy({}, {
@@ -301,6 +302,31 @@ Deno.test("query > custom transform on builder", () => {
   );
 });
 
+Deno.test("query > fragments", async () => {
+  assertEquals<OperationMockFromType<Query["Search"]>>(
+    build.Search({ data: { search: [{ title: "title" }] } }),
+    {
+      request: {
+        query: (await Deno.readTextFile("examples/board/Search.gql")).replace(
+          '#import "./NodeFragment.gql"',
+          await Deno.readTextFile("examples/board/NodeFragment.gql"),
+        ),
+        variables: { term: "scalar-String-SearchVariables" },
+      },
+      result: {
+        data: {
+          search: [{
+            __typename: "Post",
+            content: "scalar-String-Post",
+            id: "scalar-ID-Post",
+            title: "title",
+          }],
+        },
+      },
+    },
+  );
+});
+
 Deno.test("mutation", async () => {
   assertEquals<OperationMockFromType<Mutation["CreatePost"]>>(
     build.CreatePost({ data: { createPost: { id: "post-id" } } })
@@ -336,6 +362,29 @@ Deno.test("mutation", async () => {
   );
 });
 
-// subscription
-
-// fragments (inline & not)
+Deno.test("subscription", async () => {
+  assertEquals<OperationMockFromType<Subscription["OnPostCreated"]>>(
+    build.OnPostCreated(),
+    {
+      request: {
+        query: await Deno.readTextFile("examples/board/OnPostCreated.gql"),
+      },
+      result: {
+        data: {
+          postCreated: {
+            __typename: "Post",
+            author: {
+              __typename: "User",
+              id: "scalar-ID-User",
+              name: "scalar-String-User",
+            },
+            content: "scalar-String-Post",
+            createdAt: "scalar-DateTime-Post",
+            id: "scalar-ID-Post",
+            title: "scalar-String-Post",
+          },
+        },
+      },
+    },
+  );
+});

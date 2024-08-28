@@ -40,14 +40,3 @@ export type SimpleOperationMock<
   error?: Error;
   errors?: GraphQLError[];
 };
-
-export type OperationMockFromType<
-  T extends {
-    data: Record<string, unknown>;
-    variables?: Record<string, unknown>;
-  },
-> = OperationMock<T["data"], T["variables"]>;
-
-export type Shift<T extends unknown[]> = T extends [infer _First, ...infer Rest]
-  ? Rest
-  : [];

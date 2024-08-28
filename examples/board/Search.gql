@@ -1,4 +1,4 @@
-#import "./NodeFragment.graphql"
+#import "./NodeFragment.gql"
 
 query Search($term: String!) {
   search(term: $term) {

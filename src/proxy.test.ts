@@ -1,15 +1,18 @@
 import { __Type, GraphQLError, parse } from "npm:graphql";
 import { operation, proxy } from "./proxy.ts";
 import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
-import { Inputs, Mutation, Query, Types } from "../examples/board/types.ts";
+import {
+  Inputs,
+  Mutation,
+  Query,
+  Subscription,
+  Types,
+} from "../examples/board/types.ts";
 
 const schema = await Deno.readTextFile("examples/board/schema.graphql");
 const { definitions } = parse(schema);
 const scalars = new Proxy({}, {
-  get: (_, prop) => (t: string) => {
-    if (t === "String") console.log("???", new Error().stack);
-    return `scalar-${prop.toString()}-${t}`;
-  },
+  get: (_, prop) => (t: string) => `scalar-${prop.toString()}-${t}`,
   has: () => true,
 });
 
@@ -939,7 +942,122 @@ Deno.test("operations > mutations", async () => {
   );
 });
 
-// operations > subscriptions
-// scalar list?
-// interface list?
-// union list?
+Deno.test("operations > subscriptions", async () => {
+  const query = await Deno.readTextFile("examples/board/OnPostCreated.gql");
+
+  assertEquals(
+    operation<Subscription["OnPostCreated"]>(definitions, scalars, query, {
+      data: { postCreated: { title: "title" } },
+    }),
+    {
+      request: { query },
+      result: {
+        data: {
+          postCreated: {
+            __typename: "Post",
+            author: {
+              __typename: "User",
+              id: "scalar-ID-User",
+              name: "scalar-String-User",
+            },
+            content: "scalar-String-Post",
+            createdAt: "scalar-DateTime-Post",
+            id: "scalar-ID-Post",
+            title: "title",
+          },
+        },
+      },
+    },
+  );
+});
+
+Deno.test("scalars > list", () => {
+  assertEquals(
+    proxy(definitions, scalars, "Query.nonnullableNonnullableScalars"),
+    [],
+  );
+
+  assertEquals(
+    proxy<string[]>(
+      definitions,
+      scalars,
+      "Query.nonnullableNonnullableScalars",
+      { 1: "ok" },
+    ),
+    ["scalar-String-Query", "ok"],
+  );
+});
+
+Deno.test("unions", () => {
+  assertEquals(
+    proxy<{ __typename: "User" | "Post" }>(
+      definitions,
+      scalars,
+      "SearchResult",
+    ).__typename,
+    "User",
+  );
+
+  assertEquals(
+    proxy<{ __typename: "User" | "Post"; title?: string }>(
+      definitions,
+      scalars,
+      "SearchResult",
+      { title: "ok" },
+    ).__typename,
+    "Post",
+  );
+});
+
+Deno.test("unions > list", () => {
+  assertEquals(proxy(definitions, scalars, "Query.search"), []);
+
+  assertEquals(
+    proxy<Query["Search"]["data"]["search"]>(
+      definitions,
+      scalars,
+      "Query.search",
+      [{}, { title: "ok" }],
+    ).map((v) => v.__typename),
+    ["User", "Post"],
+  );
+});
+
+Deno.test("interfaces", () => {
+  assertEquals(proxy<Types["User"]>(definitions, scalars, "Node"), {
+    __typename: "User",
+    createdAt: "scalar-DateTime-User",
+    email: "scalar-String-User",
+    id: "scalar-ID-User",
+    name: "scalar-String-User",
+    posts: [],
+    profilePicture: null,
+    role: "ADMIN",
+  });
+});
+
+Deno.test("interfaces > hint", () => {
+  assertEquals(
+    proxy<Types["Post"]>(definitions, scalars, "Node", { title: "ok" })
+      .__typename,
+    "Post",
+  );
+});
+
+Deno.test("interfaces > list", () => {
+  assertEquals(
+    proxy<{ __typename: string }[]>(definitions, scalars, "Query.search"),
+    [],
+  );
+
+  assertEquals(
+    proxy<{ __typename: string; title?: string }[]>(
+      definitions,
+      scalars,
+      "Query.search",
+      { 1: { title: "ok" } },
+    )
+      .map((v) => v.__typename),
+    ["User", "Post"],
+  );
+});

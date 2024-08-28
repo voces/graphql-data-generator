@@ -1,8 +1,6 @@
-import type { GraphQLError } from "npm:graphql";
-import { Patch } from "./types.ts";
+import { OperationMock, Patch, SimpleOperationMock } from "./types.ts";
 
-export type EmptyObject = Omit<{ foo: "string" }, "foo">;
-// export type EmptyObject = Record<string, never>;
+export type EmptyObject = Record<string, never>;
 
 // Very similar to object patch, except without array helpers
 type DefaultObjectTransformSwitch<T, U> = T extends (infer G)[]
@@ -15,48 +13,22 @@ type DefaultObjectTransform<T, U = T> = {
     : T[K] | ((host: U) => T[K]);
 };
 
-export type Options<
-  Data = unknown,
-  Variables = Record<string, unknown> | never,
-> = {
-  data?: Patch<Data>;
-  variables?: Patch<Variables>;
-  refetch?: boolean;
-  optional?: boolean;
-};
-
-export type OperationMock<
-  Data extends Record<string, unknown> = Record<string, unknown>,
-  Variables = Record<string, unknown> | never,
-> = {
-  request: { query: string; variables?: Variables };
-  result: { data?: Data; errors?: GraphQLError[] };
-  error?: Error;
-};
-
-type Shift<T extends unknown[]> = T extends [infer _First, ...infer Rest] ? Rest
+export type Shift<T extends unknown[]> = T extends [infer _First, ...infer Rest]
+  ? Rest
   : [];
 
-type Collection<T, Transforms> = {
-  readonly length: number;
-  readonly find: <U extends T>(fn: (v: T) => v is U) => U | undefined;
-  readonly last: (T & ObjectBuilder<T, Transforms>) | undefined;
-  /** `field` defaults to `id` */
-  readonly findBy: (
-    id: unknown,
-    field?: keyof T,
-  ) => (T & ObjectBuilder<T, Transforms>) | undefined;
-  readonly filter: <U extends T>(fn: (v: T) => v is U) => U[];
-  readonly all: T[];
-};
-
-export type OperationBuilder<
+type OperationBuilder<
   Data extends Record<string, unknown> = Record<string, unknown>,
   Variables = unknown,
   Transforms = unknown,
 > =
   & ((
-    options?: Options<Data, Variables>,
+    ...patches: (
+      | Patch<SimpleOperationMock<Data, Variables>>
+      | ((
+        prev: SimpleOperationMock<Data, Variables>,
+      ) => Patch<SimpleOperationMock<Data, Variables>>)
+    )[]
   ) => OperationBuilderWithMock<Data, Variables, Transforms>)
   & {
     variables: (
@@ -147,7 +119,7 @@ type ObjectTransforms<T, Transforms> =
     // clone: (patch: Patch<T, T>) => T & ObjectTransforms<T, Transforms>;
   };
 
-export type ObjectBuilder<T, Transforms> =
+type ObjectBuilder<T, Transforms> =
   & ((
     ...patches: (Patch<T> | ((previous: T) => Patch<T>))[]
   ) => T & ObjectTransforms<T, Transforms>)
@@ -183,10 +155,10 @@ export type MapObjectsToTransforms<
   >;
 };
 
-type InnerMapOperationsToTransforms<Operations, Types> = {
+type InnerMapOperationsToTransforms<Operations> = {
   [Operation in keyof Operations]?: Record<
     string,
-    InferOperationTransforms<Operations[Operation], Types>
+    InferOperationTransforms<Operations[Operation]>
   >;
 };
 
@@ -197,8 +169,7 @@ export type MapOperationsToTransforms<
   Types,
   Inputs,
 > = InnerMapOperationsToTransforms<
-  ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs>,
-  Types
+  ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs>
 >;
 
 type MapOperationsToBuilders<T, Transforms> = {
@@ -244,37 +215,24 @@ type ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs> =
     Inputs
   >;
 
-type FullSchemaType<T, Types> = "__typename" extends keyof T
-  ? T["__typename"] extends keyof Types ? Types[T["__typename"]] : T
-  : T extends object ? { [K in keyof T]: FullSchemaType<T[K], Types> }
-  : T;
-
-type DefaultOperationTransform<T, Types> = {
-  data?: T extends { data: infer D } ? Patch<
-      D
-    > // FullSchemaType<D, Types> extends D ? FullSchemaType<D, Types> : D,
-    // T extends { variables: infer V } ? [V]
-    //   : []
-    : never;
+type DefaultOperationTransform<T> = {
+  data?: T extends { data: infer D } ? Patch<D> : never;
   variables?: T extends { variables: infer V } ? Patch<V>
     : never;
 };
 
-type OperationTransform<T, Types> = (
+type OperationTransform<T> = (
   b: {
     data: T extends { data: infer U } ? U : never;
     variables: T extends { variables: infer U } ? U : never;
   },
   // deno-lint-ignore no-explicit-any
   ...args: any[]
-) => Patch<
-  T
-> // FullSchemaType<T, Types> extends T ? FullSchemaType<T, Types> : T
-;
+) => Patch<T>;
 
-type InferOperationTransforms<T, Types> =
-  | DefaultOperationTransform<T, Types>
-  | OperationTransform<T, Types>;
+type InferOperationTransforms<T> =
+  | DefaultOperationTransform<T>
+  | OperationTransform<T>;
 
 export type Build<
   Queries,

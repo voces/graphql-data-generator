@@ -6,6 +6,7 @@
       "jsr:@std/assert@^0.225.2": "jsr:@std/assert@0.225.2",
       "jsr:@std/fs": "jsr:@std/fs@0.229.1",
       "jsr:@std/internal@^0.225.1": "jsr:@std/internal@0.225.1",
+      "jsr:@std/path": "jsr:@std/path@0.225.1",
       "jsr:@std/path@^0.225.1": "jsr:@std/path@0.225.1",
       "npm:graphql": "npm:graphql@16.6.0"
     },
