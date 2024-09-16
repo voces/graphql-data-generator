@@ -492,7 +492,7 @@ const _proxy = <T>(
     return arr as T;
   }
 
-  if (!definition) throw new Error(`Could not find definition '${name}'`);
+  if (!definition) throw new Error(`Could not find definition '${path}'`);
 
   switch (definition.kind) {
     case Kind.INPUT_OBJECT_TYPE_DEFINITION:

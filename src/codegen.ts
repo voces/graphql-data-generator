@@ -351,8 +351,8 @@ const serializeType = (
       const content = Object.entries(type.value).map(([key, value]) =>
         `${"  ".repeat(depth + 1)}${key}${
           value.optional && variables ? "?" : ""
-        }: ${serializeType(value, variables, depth + 1)}`
-      ).join(",\n");
+        }: ${serializeType(value, variables, depth + 1)};`
+      ).join("\n");
       const ands = [
         `{${content ? `\n${content}\n${"  ".repeat(depth)}` : ""}}`,
 
@@ -739,7 +739,7 @@ ${includeTypenames ? `  __typename: "${name}";\n` : ""}${
       ),
       `export type Types = {
 ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
-}`,
+};`,
       `export const types = [${
         usedTypes.map(([name]) => `"${name}"`).join(", ")
       }] as const;`,

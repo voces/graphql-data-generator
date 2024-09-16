@@ -15,6 +15,7 @@ await build({
   },
   scriptModule: false,
   skipSourceOutput: true,
+  test: false,
   package: {
     name: "graphql-data-generator",
     version: config.version,

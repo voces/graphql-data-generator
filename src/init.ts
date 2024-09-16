@@ -151,7 +151,7 @@ export const init = <
     otherNames: string[],
   ): keyof FullBuild => {
     if (!otherNames.includes(operation)) return operation;
-    return `${kind}${name[0].toUpperCase()}${name.slice(1)}`;
+    return `${kind}${operation[0].toUpperCase()}${operation.slice(1)}`;
   };
 
   type OperationPatch = Shift<
