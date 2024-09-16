@@ -1,6 +1,6 @@
 import { __Type, GraphQLError, parse } from "npm:graphql";
-import { operation, proxy } from "./proxy.ts";
 import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
+import { operation, proxy } from "./proxy.ts";
 import {
   Inputs,
   Mutation,

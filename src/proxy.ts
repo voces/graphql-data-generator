@@ -10,12 +10,12 @@ import {
   NameNode,
   ObjectTypeDefinitionNode,
   OperationDefinitionNode,
+  parse,
   SelectionSetNode,
   TypeNode,
   UnionTypeDefinitionNode,
 } from "npm:graphql";
 import { OperationMock, Patch, SimpleOperationMock } from "./types.ts";
-import { parse } from "npm:graphql";
 import { absurd } from "./util.ts";
 
 type NamedDefinitionNode = DefinitionNode & { name: NameNode };
@@ -99,6 +99,13 @@ const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
           );
         }
         type = argument.type;
+      }
+
+      while (parts[i + 2]?.match(/^\d$/)) {
+        if (type.kind === Kind.NON_NULL_TYPE) type = type.type;
+        if (type.kind !== Kind.LIST_TYPE) throw new Error("Expected list type");
+        type = type.type;
+        i += 2;
       }
 
       let t = type;
@@ -468,7 +475,7 @@ const _proxy = <T>(
       arr[i] = _proxy(
         definitions,
         scalars,
-        path,
+        `${path}.${i}`,
         [
           value[i],
           i === lastIndex ? (value as { last?: number }).last : undefined,
@@ -510,11 +517,6 @@ const _proxy = <T>(
           f.name.value === unaliased
         );
         if (!field) return target[prop as keyof T];
-
-        // if (!patches.length) {
-        //   const rawDefaultPatch = getDefaultPatch(definition.name.value);
-        //   const defaultPatch = typeof rawDefaultPatch === "function" ?
-        // }
 
         // Get from patch
         if (patches.length > 0 && patch && prop in patch) {

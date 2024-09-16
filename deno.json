@@ -1,6 +1,11 @@
 {
-    "tasks": {
-        "dev": "deno run -A --watch examples/generate.ts",
-        "test": "deno test -A --watch"
-    }
+  "version": "0.1.0",
+  "tasks": {
+    "test": "deno test -A --watch",
+    "build": "deno task build:npm && deno task build:examples",
+    "build:npm": "deno run -A script/build.ts",
+    "build:examples": "deno task build:examples:board && deno task build:examples:shopping-cart",
+    "build:examples:board": "deno run -A src/cli.ts --schema examples/board/schema.graphql --operations examples/board --scalar DateTime:string --scalar URL:string --outfile examples/board/types.ts",
+    "build:examples:shopping-cart": "deno run -A src/cli.ts --schema examples/shoppingCart/schema.graphql --operations examples/shoppingCart --outfile examples/shoppingCart/types.ts"
+  }
 }

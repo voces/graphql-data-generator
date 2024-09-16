@@ -12,9 +12,7 @@ type ArrayPatch<T> =
 type ObjectPatch<T> = {
   [K in keyof T]?:
     | (T[K] extends object | null | undefined ? Patch<T[K]> : T[K])
-    | ((
-      previous: T,
-    ) =>
+    | ((previous: T) =>
       | (T[K] extends object | null | undefined ? Patch<T[K]> : T[K])
       | undefined
       | null);

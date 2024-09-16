@@ -170,7 +170,7 @@ Deno.test("objects > custom transform on builder", () => {
         id: "scalar-ID-User",
         name: "scalar-String-User",
         posts: [],
-        profilePicture: null,
+        profilePicture: "https://example.com/scalar-ID-User.png",
         role: "ADMIN",
       },
       content: "scalar-String-Post",
@@ -318,13 +318,44 @@ Deno.test("query > fragments", async () => {
           search: [{
             __typename: "Post",
             content: "scalar-String-Post",
-            id: "scalar-ID-Post",
+            id: "scalar-ID-User",
             title: "title",
           }],
         },
       },
     },
   );
+});
+
+Deno.test("query > empty patch clones", () => {
+  const getObjects = (
+    object: Record<string, unknown>,
+    set = new Set<Record<string, unknown>>(),
+  ) => {
+    if (set.has(object)) return set;
+    set.add(object);
+    for (const prop in object) {
+      const value = object[prop];
+      if (value && typeof value === "object") {
+        getObjects(value as Record<string, unknown>, set);
+      }
+    }
+    return set;
+  };
+
+  const a = build.Search();
+  const b = a.patch({});
+
+  const aObjects = getObjects(a);
+  const bObjects = getObjects(b);
+
+  for (const obj of aObjects) {
+    if (bObjects.has(obj)) {
+      throw new Error(
+        `Expected a and b to have no shared objects, but they share ${obj}`,
+      );
+    }
+  }
 });
 
 Deno.test("mutation", async () => {

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import {
   EnumTypeDefinitionNode,
   FieldDefinitionNode,
@@ -18,6 +19,8 @@ import {
   TypeNode,
   UnionTypeDefinitionNode,
 } from "npm:graphql";
+import fg from "npm:fast-glob";
+import { join } from "node:path";
 import { raise } from "./util.ts";
 
 type SerializableType =
@@ -322,7 +325,11 @@ const getOperationVariables = (
   optional: false,
 });
 
-const serializeType = (type: SerializableType, variables = false): string => {
+const serializeType = (
+  type: SerializableType,
+  variables = false,
+  depth = 0,
+): string => {
   switch (type.kind) {
     case "Name":
       return `${type.value}${type.optional ? " | null" : ""}`;
@@ -333,31 +340,31 @@ const serializeType = (type: SerializableType, variables = false): string => {
           ((type.value.conditionals?.length ?? 0) -
             (Object.keys(type.value.value).length ? 0 : 1)))
       ) {
-        return `(${serializeType(type.value, variables)})[]${
+        return `(${serializeType(type.value, variables, depth)})[]${
           type.optional ? " | null" : ""
         }`;
       }
-      return `${serializeType(type.value, variables)}[]${
+      return `${serializeType(type.value, variables, depth)}[]${
         type.optional ? " | null" : ""
       }`;
     case "Object": {
       const content = Object.entries(type.value).map(([key, value]) =>
-        `${key}${value.optional && variables ? "?" : ""}: ${
-          serializeType(value, variables)
-        }`
-      ).join(", ");
+        `${"  ".repeat(depth + 1)}${key}${
+          value.optional && variables ? "?" : ""
+        }: ${serializeType(value, variables, depth + 1)}`
+      ).join(",\n");
       const ands = [
-        `{${content ? ` ${content} ` : ""}}`,
+        `{${content ? `\n${content}\n${"  ".repeat(depth)}` : ""}}`,
 
         ...(type.conditionals?.filter((c) =>
           c.kind !== "Object" || !c.value.__typename
-        )?.map((c) => `(${serializeType(c, variables)} | {})`) ??
+        )?.map((c) => `(${serializeType(c, variables, depth + 1)} | {})`) ??
           []),
       ];
 
       const ors = type.conditionals
         ?.filter((c) => c.kind === "Object" && c.value.__typename)
-        .map((c) => serializeType(c, variables)) ?? [];
+        .map((c) => serializeType(c, variables, depth)) ?? [];
 
       if (type.nonExhaustive?.length && ors.length) {
         ors.push(
@@ -373,10 +380,10 @@ const serializeType = (type: SerializableType, variables = false): string => {
         [
           ands[0] === "{}" ? undefined : ands[0],
           ors.length > 1 && (ands.length !== 1 || ands[0] !== "{}")
-            ? `(${ors.join("\n| ")})`
-            : ors.join("\n| "),
+            ? `(${ors.join(" | ")})`
+            : ors.join(" | "),
           ...ands.slice(1),
-        ].filter(Boolean).join("\n& ")
+        ].filter(Boolean).join(" & ")
       }${type.optional ? " | null" : ""}`;
     }
     case "StringLiteral":
@@ -495,7 +502,7 @@ export const codegen = (
     scalars?: Record<string, string | undefined>;
     includeTypenames?: boolean;
   } = {},
-) => {
+): string => {
   const schemaDoc = parse(schema);
 
   const types: Record<
@@ -662,23 +669,25 @@ export const codegen = (
       `export type ${operationNames[name].types} = {
 ${
         collection.map((o) => {
-          const data = serializeType(getOperationType(
-            o.definition,
-            types,
-            fragments,
-            roots[o.definition.operation],
-            references,
-            includeTypenames,
-          ));
+          const data = serializeType(
+            getOperationType(
+              o.definition,
+              types,
+              fragments,
+              roots[o.definition.operation],
+              references,
+              includeTypenames,
+            ),
+            false,
+            2,
+          );
           const variables = getOperationVariables(o.definition, references);
 
           return `  ${o.name}: {
-    data: {
-      ${data.slice(1, -1)}
-    };${
+    data: ${data};${
             variables.kind === "Object" && Object.keys(variables.value).length
               ? `
-    variables: ${serializeType(variables, true)};`
+    variables: ${serializeType(variables, true, 2)};`
               : ""
           }
   };`;
@@ -721,7 +730,7 @@ ${Array.from(handledInputs).map((i) => `  ${i}: ${i};`).join("\n")}
     serializedTypes.unshift(
       ...usedTypes.map(([name, type, usage]) =>
         `type ${name} = {
-${includeTypenames ? `__typename: "${name}";\n` : ""}${
+${includeTypenames ? `  __typename: "${name}";\n` : ""}${
           type.fields?.filter((f) => usage.has(f.name.value)).map((v) =>
             `  ${v.name.value}: ${serializeType(simpleType(v.type, types))};`
           ).join("\n")
@@ -751,7 +760,7 @@ ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
       }
       if (useEnums) {
         return `enum ${r.name.value} {
-  ${r.values?.map((r) => r.name.value).join(",\n")}
+  ${r.values?.map((r) => r.name.value).join(",\n  ")}
 }`;
       } else {
         return `type ${r.name.value} = ${
@@ -761,16 +770,28 @@ ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
     }),
   );
 
-  console.log(
-    Object.fromEntries(
-      [
-        ...Object.entries(types).map(([name, info]) => [name, info?.[1]]),
-        ...Object.entries(inputs).map((
-          [name],
-        ) => [name, handledInputs.has(name)]),
-      ],
-    ),
-  );
+  return serializedTypes.join("\n\n") + "\n";
+};
 
-  return serializedTypes.join("\n\n");
+export const loadFiles = async (
+  schemaPath: string,
+  operationDirs: string[],
+): Promise<
+  [schema: string, operations: { path: string; content: string }[]]
+> => {
+  const operationPromises: Promise<{ path: string; content: string }>[] = [];
+  for (const dir of operationDirs) {
+    for await (const path of fg.stream(join(dir, "**/*.gql"))) {
+      operationPromises.push(
+        readFile(path.toString(), "utf-8").then((content) => ({
+          path: path.toString(),
+          content,
+        })),
+      );
+    }
+  }
+  return [
+    await readFile(schemaPath, "utf-8"),
+    await Promise.all(operationPromises),
+  ];
 };

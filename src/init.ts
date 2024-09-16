@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { parse } from "npm:graphql";
-import { dirname, join } from "jsr:@std/path";
+import { dirname, join } from "node:path";
 
 import {
   Build,
@@ -14,7 +15,7 @@ import { toObject } from "./util.ts";
 
 const files: Record<string, string> = {};
 const loadFile = (path: string): string =>
-  files[path] = Deno.readTextFileSync(path).replace(
+  files[path] = readFileSync(path, "utf-8").replace(
     /#import "(.*)"/,
     (_, fragmentPath) => loadFile(join(dirname(path), fragmentPath)),
   );
@@ -65,14 +66,7 @@ export const init = <
   fn: (
     b: Build<Query, Mutation, Subscription, Types, Inputs, EmptyObject>,
   ) => Transforms,
-): Build<
-  Query,
-  Mutation,
-  Subscription,
-  Types,
-  Inputs,
-  Transforms
-> => {
+): Build<Query, Mutation, Subscription, Types, Inputs, Transforms> => {
   const doc = parse(schema);
 
   type FullBuild = Build<

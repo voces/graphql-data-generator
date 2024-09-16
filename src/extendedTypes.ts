@@ -44,10 +44,6 @@ type OperationBuilder<
     patch: (
       patch: Patch<{ data: Data; variables: Variables }>,
     ) => OperationBuilderWithMock<Data, Variables, Transforms>;
-    /** Creates a clone of the mock. The clone is  */
-    clone: (
-      patch?: Patch<{ data: Data; variables: Variables }>,
-    ) => OperationBuilderWithMock<Data, Variables, Transforms>;
   }
   & {
     [Transform in keyof Transforms]: Transforms[Transform] extends // deno-lint-ignore no-explicit-any
@@ -55,46 +51,7 @@ type OperationBuilder<
         ...params: Shift<Parameters<Transforms[Transform]>>
       ) => OperationBuilderWithMock<Data, Variables, Transforms>
       : () => OperationBuilderWithMock<Data, Variables, Transforms>;
-  }
-  & OperationBuilderWithMock<Data, Variables, Transforms>[]
-  // Why can't this use Collection?
-  & {
-    readonly length: number;
-    readonly find: <
-      U extends OperationBuilderWithMock<Data, Variables, Transforms>,
-    >(
-      fn: (v: OperationBuilderWithMock<Data, Variables, Transforms>) => v is U,
-    ) => U | undefined;
-    readonly last:
-      | (
-        & OperationBuilderWithMock<Data, Variables, Transforms>
-        & ObjectBuilder<
-          OperationBuilderWithMock<Data, Variables, Transforms>,
-          EmptyObject
-        >
-      )
-      | undefined;
-    /** `field` defaults to `id` */
-    readonly findBy: (
-      id: unknown,
-      field?: keyof OperationBuilderWithMock<Data, Variables, Transforms>,
-    ) =>
-      | (
-        & OperationBuilderWithMock<Data, Variables, Transforms>
-        & ObjectBuilder<
-          OperationBuilderWithMock<Data, Variables, Transforms>,
-          EmptyObject
-        >
-      )
-      | undefined;
-    readonly filter: <
-      U extends OperationBuilderWithMock<Data, Variables, Transforms>,
-    >(
-      fn: (v: OperationBuilderWithMock<Data, Variables, Transforms>) => v is U,
-    ) => U[];
-    readonly all: OperationBuilderWithMock<Data, Variables, Transforms>[];
   };
-// & Collection<OperationBuilderWithMock<Data, Variables, Transforms>>;
 
 type OperationBuilderWithMock<
   Data extends Record<string, unknown>,
