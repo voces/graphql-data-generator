@@ -20,6 +20,10 @@ type ObjectPatch<T> = {
 export type Patch<T> = T extends (infer U)[] ? ArrayPatch<U>
   : ObjectPatch<T>;
 
+export type DeepPartial<T> = T extends (infer U)[] ? DeepPartial<U>[]
+  : T extends object ? { [P in keyof T]?: DeepPartial<T[P]> }
+  : T;
+
 export type OperationMock<
   Data extends Record<string, unknown> = Record<string, unknown>,
   Variables = Record<string, unknown> | never,

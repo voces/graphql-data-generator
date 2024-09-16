@@ -419,3 +419,17 @@ Deno.test("subscription", async () => {
     },
   );
 });
+
+type Container = { values: string[] };
+type ContainerPatch = Patch<Container>;
+// Directly set index 1
+const patch1: ContainerPatch = { values: { 1: "ok" } };
+// `last` will modify the last element in the array. If the array is empty,
+// instantiates a new element.
+const patch2: ContainerPatch = { values: { last: "ok" } };
+// `next` instantiates a new element and appends it to the array.
+const patch3: ContainerPatch = { values: { next: "ok" } };
+// `length` can be used to truncate or instantiate new elements
+const patch4: ContainerPatch = { values: { length: 0 } };
+// An array can be directly used. Will truncate extra elements.
+const patch5: ContainerPatch = { values: ["ok"] };
