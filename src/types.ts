@@ -1,4 +1,7 @@
-import { GraphQLError } from "npm:graphql";
+import type { GraphQLError } from "npm:graphql";
+
+export type ContravariantEmpty = Record<string, never>;
+export type CovariantEmpty = object;
 
 type ArrayPatch<T> =
   | Patch<T>[]

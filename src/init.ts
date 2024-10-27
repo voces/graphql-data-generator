@@ -2,14 +2,19 @@ import { readFileSync } from "node:fs";
 import { parse } from "npm:graphql";
 import { dirname, join } from "node:path";
 
-import {
+import type {
   Build,
-  EmptyObject,
   MapObjectsToTransforms,
   MapOperationsToTransforms,
   Shift,
 } from "./extendedTypes.ts";
-import { OperationMock, Patch, SimpleOperationMock } from "./types.ts";
+import type {
+  ContravariantEmpty,
+  CovariantEmpty,
+  OperationMock,
+  Patch,
+  SimpleOperationMock,
+} from "./types.ts";
 import { operation, proxy, withGetDefaultPatch } from "./proxy.ts";
 import { toObject } from "./util.ts";
 
@@ -36,6 +41,7 @@ export const init = <
   >,
   Types extends Record<string, Record<string, unknown>>,
   Inputs extends Record<string, Record<string, unknown>>,
+  Extra = CovariantEmpty,
 >(
   schema: string,
   queries: { [operation in keyof Query]: string },
@@ -51,6 +57,11 @@ export const init = <
       | boolean
       | null;
   },
+  options?: {
+    finalizeOperation: <T extends OperationMock & Partial<Extra>>(
+      operation: T,
+    ) => T;
+  },
 ) =>
 <
   Transforms extends
@@ -64,9 +75,17 @@ export const init = <
     >,
 >(
   fn: (
-    b: Build<Query, Mutation, Subscription, Types, Inputs, EmptyObject>,
+    b: Build<
+      Query,
+      Mutation,
+      Subscription,
+      Types,
+      Inputs,
+      ContravariantEmpty,
+      Extra
+    >,
   ) => Transforms,
-): Build<Query, Mutation, Subscription, Types, Inputs, Transforms> => {
+): Build<Query, Mutation, Subscription, Types, Inputs, Transforms, Extra> => {
   const doc = parse(schema);
 
   type FullBuild = Build<
@@ -75,7 +94,8 @@ export const init = <
     Subscription,
     Types,
     Inputs,
-    Transforms
+    Transforms,
+    Extra
   >;
   type BuildWithoutTransforms = Build<
     Query,
@@ -83,7 +103,8 @@ export const init = <
     Subscription,
     Types,
     Inputs,
-    EmptyObject
+    ContravariantEmpty,
+    Extra
   >;
 
   const build: Partial<FullBuild> = {};
@@ -129,20 +150,27 @@ export const init = <
       () => toObject(proxy<T>(doc.definitions, scalars, type, ...patches)),
     );
 
-  const objectBuilder = <T, K extends keyof FullBuild>(type: string) =>
-    addObjectTransforms(type, (...patches: Patch<T>[]) => {
+  const objectBuilder = <T>(type: string) =>
+    addObjectTransforms(type, (...patches: (Patch<T>)[]) => {
       if (transforms[type] && "default" in transforms[type]) {
-        patches = [transforms[type].default as Patch<T>, ...patches];
+        patches = [
+          transforms[type].default as Patch<T>,
+          ...patches,
+        ];
       }
       return addObjectTransforms(type, wrap(type, patches));
-    }) as FullBuild[K];
+    });
 
   for (const type of types) {
-    build[type as keyof Types] = objectBuilder(type);
+    build[type as keyof Types] = objectBuilder(
+      type,
+    ) as FullBuild[keyof Types];
   }
 
   for (const input of inputs) {
-    build[input as keyof Inputs] = objectBuilder(input);
+    build[input as keyof Inputs] = objectBuilder(
+      input,
+    ) as FullBuild[keyof Inputs];
   }
 
   const resolveOperationConflicts = (
@@ -165,12 +193,14 @@ export const init = <
         const builder = build[operation]! as (
           ...patches: OperationPatch[]
         ) => OperationMock;
+        const { result, request, error, ...rest } = prev;
         return builder(
           {
-            data: prev.result.data,
-            variables: prev.request.variables,
-            error: prev.error,
-            errors: prev.result.errors,
+            data: result.data,
+            variables: request.variables,
+            error: error,
+            errors: result.errors,
+            ...rest,
           },
           ...patches,
         );
@@ -217,9 +247,14 @@ export const init = <
       if (transforms[name] && "default" in transforms[name]) {
         patches = [transforms[name].default as OperationPatch, ...patches];
       }
+      const result = toObject(
+        operation(doc.definitions, scalars, query, ...patches),
+      );
       return addOperationTransforms(
         name,
-        toObject(operation(doc.definitions, scalars, query, ...patches)),
+        options?.finalizeOperation
+          ? options.finalizeOperation(result as OperationMock & Partial<Extra>)
+          : result,
       );
     }) as FullBuild[keyof FullBuild];
 

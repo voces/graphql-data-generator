@@ -43,7 +43,7 @@ export const build = init<Query, Mutation, Subscription, Types, Inputs>(
   subscriptions,
   types,
   inputs,
-  scalarss,
+  scalars,
 )(() => ({
   // Can define transforms for objects
   User: {
@@ -143,3 +143,69 @@ Operations:
 
 When defining custom transforms, the `default` transform has special meaning: it
 will be automatically applied as the first aptch to all instances.
+
+## Extra
+
+The `init` function supports a 6th optional generic parameter, Extra, which
+allows defining extra properties for operation mocks, passable in operation
+patches. This is helpful to support extra Apollo-related properties or custom
+logic. Extra properties will always be optional in patches and the final object
+and will not be patched in but simply merged, such as by `Object.assign`.
+
+### Example: Adding an extra optional property to bypass an assertion a mock is used
+
+```ts
+const build = init<
+  Query,
+  Mutation,
+  Subscription,
+  Types,
+  Inputs,
+  { optional: boolean }
+>(
+  schema,
+  queries,
+  mutations,
+  subscriptions,
+  types,
+  inputs,
+  scalars,
+)(() => ({}));
+
+build.CreatePost({ optional: true }).optional; // true
+```
+
+## finalizeOperation
+
+The `init`'s final parmaeter, `options`, supports a `finalizeOperation` key.
+This is used as final step when building an operation and acts as a generic
+transform on the final mock itself, which can be useful to attach spies or when
+building interactivity with other GQL tools.
+
+### Exmaple: Enforcing a mock is used in Apollo & Jest
+
+```ts
+const build = init<Query, Mutation, Subscription, Types, Inputs>(
+  schema,
+  queries,
+  mutations,
+  subscriptions,
+  types,
+  inputs,
+  scalars,
+  {
+    finalizeOperation: (op) => {
+      const fn = Object.assign(
+        jest.fn(() => op.result),
+        op.result,
+      ) as typeof op["result"];
+      op.result = fn;
+      return op;
+    },
+  },
+)(() => ({}));
+
+const createPost = build.CreatePost();
+// ...
+expect(createPost.result).toHaveBeenCalled();
+```

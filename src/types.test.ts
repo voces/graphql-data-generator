@@ -1,4 +1,4 @@
-import { OperationMock } from "./types.ts";
+import type { OperationMock } from "./types.ts";
 
 export type OperationMockFromType<
   T extends {

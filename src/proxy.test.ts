@@ -1,7 +1,7 @@
 import { __Type, GraphQLError, parse } from "npm:graphql";
 import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
 import { operation, proxy } from "./proxy.ts";
-import {
+import type {
   Inputs,
   Mutation,
   Query,
@@ -968,6 +968,21 @@ Deno.test("operations > subscriptions", async () => {
         },
       },
     },
+  );
+});
+
+Deno.test("operations > retains extra top level data", async () => {
+  const query = await Deno.readTextFile("examples/board/OnPostCreated.gql");
+
+  assertEquals(
+    operation<Subscription["OnPostCreated"], { extra?: string }>(
+      definitions,
+      scalars,
+      query,
+      { extra: "foo" },
+      { data: { postCreated: { title: "title" } } },
+    ).extra,
+    "foo",
   );
 });
 

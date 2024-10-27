@@ -1,21 +1,24 @@
-import {
+import type {
   ConstValueNode,
   DefinitionNode,
   EnumTypeDefinitionNode,
   FragmentDefinitionNode,
   GraphQLError,
   InterfaceTypeDefinitionNode,
-  Kind,
-  Location,
   NameNode,
   ObjectTypeDefinitionNode,
   OperationDefinitionNode,
-  parse,
   SelectionSetNode,
   TypeNode,
   UnionTypeDefinitionNode,
 } from "npm:graphql";
-import { OperationMock, Patch, SimpleOperationMock } from "./types.ts";
+import { Kind, Location, parse } from "npm:graphql";
+import type {
+  CovariantEmpty,
+  OperationMock,
+  Patch,
+  SimpleOperationMock,
+} from "./types.ts";
 import { absurd } from "./util.ts";
 
 type NamedDefinitionNode = DefinitionNode & { name: NameNode };
@@ -648,9 +651,13 @@ const _proxy = <T>(
       };
 
       const mockPrev = prev as Mock | undefined;
+      const { variables: _1, data: _2, error: _3, errors: _4, ...prevExtra } =
+        mockPrev ?? {};
       const mockPatch = patch as Patch<Mock> | undefined;
+      const { variables: _5, data: _6, error: _7, errors: _8, ...patchExtra } =
+        mockPatch ?? {};
 
-      const mock: Mock = { data: null };
+      const mock: Mock = { ...prevExtra, ...patchExtra, data: null };
       // const patch = patches[patches.length - 1] as Patch<Mock> | undefined;
 
       const variablePatch = typeof mockPatch?.variables === "function"
@@ -835,15 +842,18 @@ const constToValue = (value: ConstValueNode): unknown => {
   }
 };
 
-export const operation = <O extends SimpleOperationMock>(
+export const operation = <
+  O extends SimpleOperationMock,
+  Extra = CovariantEmpty,
+>(
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   query: string,
   ...patches: (Patch<Omit<O, "error" | "errors">> & {
     error?: O["error"];
     errors?: O["errors"];
-  })[]
-): OperationMock<O["data"], O["variables"]> => {
+  } & Partial<Extra>)[]
+): OperationMock<O["data"], O["variables"]> & Partial<Extra> => {
   const document = parse(query);
 
   const operations = document.definitions.filter(
@@ -855,25 +865,26 @@ export const operation = <O extends SimpleOperationMock>(
   const operation = operations[0];
   if (!operation.name?.value) throw new Error("Expected operation to be named");
 
-  const result = _proxy<O>(
+  const { variables, data, error, errors, ...extra } = _proxy<O>(
     [...definitions, ...document.definitions],
     scalars,
     operation.name.value,
     patches as Patch<O>[], // Ignore error/errors, they're not patches
   );
 
-  const mock: OperationMock<O["data"], O["variables"]> = {
+  const mock: OperationMock<O["data"], O["variables"]> & Partial<Extra> = {
     request: { query },
     result: {},
+    ...extra as Extra,
   };
 
-  if (result.variables) mock.request.variables = result.variables;
-  if (result.error) {
-    mock.error = result.error instanceof Error
-      ? result.error
-      : Object.assign(new Error(), result.error);
-  } else if (result.data) mock.result.data = result.data;
-  if (result.errors) mock.result.errors = result.errors;
+  if (variables) mock.request.variables = variables;
+  if (error) {
+    mock.error = error instanceof Error
+      ? error
+      : Object.assign(new Error(), error);
+  } else if (data) mock.result.data = data;
+  if (errors) mock.result.errors = errors;
 
   return mock;
 };

@@ -1,14 +1,14 @@
 import { assertEquals } from "jsr:@std/assert";
 import {
-  Inputs,
+  type Inputs,
   inputs,
-  Mutation,
+  type Mutation,
   mutations,
   queries,
-  Query,
-  Subscription,
+  type Query,
+  type Subscription,
   subscriptions,
-  Types,
+  type Types,
   types,
 } from "../examples/board/types.ts";
 import { init } from "./init.ts";
@@ -21,7 +21,14 @@ const scalars = new Proxy({}, {
   has: () => true,
 });
 
-const build = init<Query, Mutation, Subscription, Types, Inputs>(
+const build = init<
+  Query,
+  Mutation,
+  Subscription,
+  Types,
+  Inputs,
+  { extra: string }
+>(
   schema,
   queries,
   mutations,
@@ -29,6 +36,26 @@ const build = init<Query, Mutation, Subscription, Types, Inputs>(
   types,
   inputs,
   scalars,
+  {
+    finalizeOperation: (op) => {
+      if (!op.extra) return op;
+      const originalResult = op.result;
+      const nextResult = Object.assign(
+        () => {
+          nextResult.calls++;
+          return originalResult;
+        },
+        originalResult,
+      ) as unknown as typeof op["result"] & { calls: number };
+      let calls = 0;
+      Object.defineProperty(nextResult, "calls", {
+        get: () => calls,
+        set: (v) => calls = v,
+      });
+      op.result = nextResult;
+      return op;
+    },
+  },
 )(() => ({
   User: {
     default: { profilePicture: (u) => `https://example.com/${u.id}.png` },
@@ -358,6 +385,26 @@ Deno.test("query > empty patch clones", () => {
   }
 });
 
+Deno.test("query > retains extra data", () => {
+  const mock = build.CreatePost({ extra: "foo" });
+  assertEquals(mock.extra, "foo");
+  assertEquals((mock.result as () => { data: unknown })().data, {
+    createPost: {
+      __typename: "Post",
+      author: {
+        __typename: "User",
+        id: "scalar-ID-User",
+        name: "scalar-String-User",
+      },
+      content: "scalar-String-Post",
+      createdAt: "scalar-DateTime-Post",
+      id: "scalar-ID-Post",
+      title: "scalar-String-Post",
+    },
+  });
+  assertEquals((mock.result as { calls: number }).calls, 1);
+});
+
 Deno.test("mutation", async () => {
   assertEquals<OperationMockFromType<Mutation["CreatePost"]>>(
     build.CreatePost({ data: { createPost: { id: "post-id" } } })
@@ -419,17 +466,3 @@ Deno.test("subscription", async () => {
     },
   );
 });
-
-type Container = { values: string[] };
-type ContainerPatch = Patch<Container>;
-// Directly set index 1
-const patch1: ContainerPatch = { values: { 1: "ok" } };
-// `last` will modify the last element in the array. If the array is empty,
-// instantiates a new element.
-const patch2: ContainerPatch = { values: { last: "ok" } };
-// `next` instantiates a new element and appends it to the array.
-const patch3: ContainerPatch = { values: { next: "ok" } };
-// `length` can be used to truncate or instantiate new elements
-const patch4: ContainerPatch = { values: { length: 0 } };
-// An array can be directly used. Will truncate extra elements.
-const patch5: ContainerPatch = { values: ["ok"] };

@@ -1,24 +1,23 @@
 import { readFile } from "node:fs/promises";
-import {
+import type {
   EnumTypeDefinitionNode,
   FieldDefinitionNode,
   FragmentDefinitionNode,
   InputObjectTypeDefinitionNode,
   InputValueDefinitionNode,
   InterfaceTypeDefinitionNode,
-  Kind,
   ListTypeNode,
   NamedTypeNode,
   NonNullTypeNode,
   ObjectTypeDefinitionNode,
   OperationDefinitionNode,
-  parse,
   ScalarTypeDefinitionNode,
   SelectionNode,
   TypeDefinitionNode,
   TypeNode,
   UnionTypeDefinitionNode,
 } from "npm:graphql";
+import { Kind, parse } from "npm:graphql";
 import fg from "npm:fast-glob";
 import { join } from "node:path";
 import { raise } from "./util.ts";

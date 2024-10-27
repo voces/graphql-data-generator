@@ -1,7 +1,11 @@
 import { exec } from "node:child_process";
 
 export const raise = (error: Error | string) => {
-  if (typeof error === "string") throw new Error(error);
+  if (typeof error === "string") {
+    const err = new Error(error);
+    Error.captureStackTrace(err, raise);
+    throw err;
+  }
   throw error;
 };
 

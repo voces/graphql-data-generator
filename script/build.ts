@@ -27,7 +27,6 @@ await build({
     bugs: {
       url: "https://github.com/voces/graphql-data-generator/issues",
     },
-    type: "module",
   },
   postBuild() {
     Deno.copyFileSync("README.md", "npm/README.md");

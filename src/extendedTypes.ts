@@ -1,6 +1,9 @@
-import { OperationMock, Patch, SimpleOperationMock } from "./types.ts";
-
-export type EmptyObject = Record<string, never>;
+import type {
+  ContravariantEmpty,
+  OperationMock,
+  Patch,
+  SimpleOperationMock,
+} from "./types.ts";
 
 // Very similar to object patch, except without array helpers
 type DefaultObjectTransformSwitch<T, U> = T extends (infer G)[]
@@ -21,45 +24,48 @@ type OperationBuilder<
   Data extends Record<string, unknown> = Record<string, unknown>,
   Variables = unknown,
   Transforms = unknown,
+  Extra = ContravariantEmpty,
 > =
   & ((
     ...patches: (
-      | Patch<SimpleOperationMock<Data, Variables>>
+      | Patch<SimpleOperationMock<Data, Variables>> & Partial<Extra>
       | ((
         prev: SimpleOperationMock<Data, Variables>,
       ) => Patch<SimpleOperationMock<Data, Variables>>)
     )[]
-  ) => OperationBuilderWithMock<Data, Variables, Transforms>)
+  ) => OperationBuilderWithMock<Data, Variables, Transforms, Extra>)
   & {
     variables: (
       variables:
         | Patch<Variables>
         | ((data: Data, variables: Variables) => Patch<Variables>),
-    ) => OperationBuilderWithMock<Data, Variables, Transforms>;
+    ) => OperationBuilderWithMock<Data, Variables, Transforms, Extra>;
     data: (
       data:
         | Patch<Data>
         | ((variables: Variables, data: Data) => Patch<Data>),
-    ) => OperationBuilderWithMock<Data, Variables, Transforms>;
+    ) => OperationBuilderWithMock<Data, Variables, Transforms, Extra>;
     patch: (
       patch: Patch<{ data: Data; variables: Variables }>,
-    ) => OperationBuilderWithMock<Data, Variables, Transforms>;
+    ) => OperationBuilderWithMock<Data, Variables, Transforms, Extra>;
   }
   & {
     [Transform in keyof Transforms]: Transforms[Transform] extends // deno-lint-ignore no-explicit-any
     (...args: any[]) => unknown ? (
         ...params: Shift<Parameters<Transforms[Transform]>>
-      ) => OperationBuilderWithMock<Data, Variables, Transforms>
-      : () => OperationBuilderWithMock<Data, Variables, Transforms>;
+      ) => OperationBuilderWithMock<Data, Variables, Transforms, Extra>
+      : () => OperationBuilderWithMock<Data, Variables, Transforms, Extra>;
   };
 
 type OperationBuilderWithMock<
   Data extends Record<string, unknown>,
   Variables,
   Transforms,
+  Extra,
 > =
   & OperationBuilder<Data, Variables, Transforms>
-  & OperationMock<Data, Variables>;
+  & OperationMock<Data, Variables>
+  & Partial<Extra>;
 
 type ObjectTransforms<T, Transforms> =
   & {
@@ -94,7 +100,7 @@ type PrefixKeys<T, Prefix extends string> = {
 type MapObjectsToBuilders<T, Transforms> = {
   [K in keyof T]: ObjectBuilder<
     T[K],
-    K extends keyof Transforms ? Transforms[K] : EmptyObject
+    K extends keyof Transforms ? Transforms[K] : ContravariantEmpty
   >;
 };
 
@@ -129,13 +135,14 @@ export type MapOperationsToTransforms<
   ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs>
 >;
 
-type MapOperationsToBuilders<T, Transforms> = {
+type MapOperationsToBuilders<T, Transforms, Extra> = {
   [K in keyof T]: OperationBuilder<
     T[K] extends { data: infer U }
       ? U extends Record<string, unknown> ? U : Record<string, unknown>
       : Record<string, unknown>,
     T[K] extends { variables: infer U } ? U : unknown,
-    K extends keyof Transforms ? Transforms[K] : EmptyObject
+    K extends keyof Transforms ? Transforms[K] : ContravariantEmpty,
+    Extra
   >;
 };
 
@@ -198,9 +205,11 @@ export type Build<
   Types,
   Inputs,
   Transforms,
+  Extra,
 > =
   & MapObjectsToBuilders<Types & Inputs, Transforms>
   & MapOperationsToBuilders<
     ResolveConflicts<Queries, Mutations, Subscriptions, Types, Inputs>,
-    Transforms
+    Transforms,
+    Extra
   >;

@@ -29,14 +29,21 @@ const findFirst = async (path: string) => {
 const schemaPath = args.schema
   ? await findFirst(args.schema)
   : (await findFirst("**/schema.graphql") ??
-    await findFirst("**/schema.gql"));
+    await findFirst("**/schema.gql") ??
+    await findFirst("**/schema.graphqls"));
+
+const fail = (reason: unknown, code = 1): never => {
+  process.stderr.write(reason + "\n");
+  process.exit(code);
+};
 
 if (!schemaPath) {
-  throw new Error(
+  fail(
     `Could not locate schema${
       args.schema ? ` "${args.schema}"` : ", try passing --schema"
     }`,
   );
+  throw ""; // TS being dumb?
 }
 
 const operationDirs = args.operations?.map((v) => `${v}`) ?? ["."];
@@ -61,7 +68,7 @@ if (args.scalar) {
   for (const kv of args.scalar) {
     const [key, value] = `${kv}`.split(":");
     if (!value) {
-      throw new Error(
+      fail(
         "Invalid --scalar argument. Pass as a key-value pair like --scalar=key:value",
       );
     }
@@ -69,11 +76,24 @@ if (args.scalar) {
   }
 }
 
-const file = await formatCode(codegen(schema, operations, {
-  useEnums: args.useEnums,
-  includeTypenames: args.includeTypenames,
-  scalars,
-}));
+try {
+  const file = await formatCode(codegen(schema, operations, {
+    useEnums: args.useEnums,
+    includeTypenames: args.includeTypenames,
+    scalars,
+  }));
 
-if (args.outfile) await Deno.writeTextFile(args.outfile, file);
-else console.log(file);
+  if (args.outfile) await Deno.writeTextFile(args.outfile, file);
+  else console.log(file);
+} catch (err) {
+  const message = err instanceof Error ? err.message : `${err}`;
+  if (message.startsWith("Could not find scalar")) {
+    const scalar = message.match(/'([^']*)'/)?.[1];
+    fail(
+      `${message}. Try passing --scalars=scalars.json or --scalar=${
+        scalar ?? "scalar"
+      }:string, replacing string with the TypeScript type of the scalar.`,
+    );
+  }
+  fail(err instanceof Error ? err.message : err);
+}
