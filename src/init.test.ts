@@ -1,3 +1,4 @@
+import { parse } from "npm:graphql";
 import { assertEquals } from "jsr:@std/assert";
 import {
   type Inputs,
@@ -241,7 +242,9 @@ Deno.test("query", async () => {
     build.queryWithVariables(),
     {
       request: {
-        query: await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        query: parse(
+          await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        ),
         variables: {
           nonnullableScalar: "scalar-String-queryWithVariablesVariables",
           nullableNullableScalars: [null, "ok"],
@@ -262,7 +265,9 @@ Deno.test("query > arg patch", async () => {
     }),
     {
       request: {
-        query: await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        query: parse(
+          await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        ),
         variables: {
           nonnullableScalar: "scalar-String-queryWithVariablesVariables",
           nullableNullableScalars: [null, "ok"],
@@ -281,7 +286,9 @@ Deno.test("query > patch transform on object", async () => {
     build.queryWithVariables().patch({ data: { queryWithVariables: false } }),
     {
       request: {
-        query: await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        query: parse(
+          await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        ),
         variables: {
           nonnullableScalar: "scalar-String-queryWithVariablesVariables",
           nullableNullableScalars: [null, "ok"],
@@ -299,7 +306,9 @@ Deno.test("query > patch transform on builder", async () => {
     build.queryWithVariables.patch({ data: { queryWithVariables: false } }),
     {
       request: {
-        query: await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        query: parse(
+          await Deno.readTextFile("examples/board/queryWithVariables.gql"),
+        ),
         variables: {
           nonnullableScalar: "scalar-String-queryWithVariablesVariables",
           nullableNullableScalars: [null, "ok"],
@@ -334,9 +343,11 @@ Deno.test("query > fragments", async () => {
     build.Search({ data: { search: [{ title: "title" }] } }),
     {
       request: {
-        query: (await Deno.readTextFile("examples/board/Search.gql")).replace(
-          '#import "./NodeFragment.gql"',
-          await Deno.readTextFile("examples/board/NodeFragment.gql"),
+        query: parse(
+          (await Deno.readTextFile("examples/board/Search.gql")).replace(
+            '#import "./NodeFragment.gql"',
+            await Deno.readTextFile("examples/board/NodeFragment.gql"),
+          ),
         ),
         variables: { term: "scalar-String-SearchVariables" },
       },
@@ -411,7 +422,7 @@ Deno.test("mutation", async () => {
       .withAuthorId("user-id"),
     {
       request: {
-        query: await Deno.readTextFile("examples/board/CreatePost.gql"),
+        query: parse(await Deno.readTextFile("examples/board/CreatePost.gql")),
         variables: {
           input: {
             authorId: "user-id",
@@ -445,7 +456,9 @@ Deno.test("subscription", async () => {
     build.OnPostCreated(),
     {
       request: {
-        query: await Deno.readTextFile("examples/board/OnPostCreated.gql"),
+        query: parse(
+          await Deno.readTextFile("examples/board/OnPostCreated.gql"),
+        ),
       },
       result: {
         data: {

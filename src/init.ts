@@ -247,9 +247,17 @@ export const init = <
       if (transforms[name] && "default" in transforms[name]) {
         patches = [transforms[name].default as OperationPatch, ...patches];
       }
-      const result = toObject(
-        operation(doc.definitions, scalars, query, ...patches),
+      const { request: { query: parsedQuery, ...request }, ...raw } = operation(
+        doc.definitions,
+        scalars,
+        query,
+        ...patches,
       );
+      const result = toObject({
+        request: { ...request },
+        ...raw,
+      }) as ReturnType<typeof operation>;
+      result.request.query = parsedQuery;
       return addOperationTransforms(
         name,
         options?.finalizeOperation

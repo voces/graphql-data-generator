@@ -1,4 +1,4 @@
-import type { GraphQLError } from "npm:graphql";
+import type { DocumentNode, GraphQLError } from "npm:graphql";
 
 export type ContravariantEmpty = Record<string, never>;
 export type CovariantEmpty = object;
@@ -31,7 +31,7 @@ export type OperationMock<
   Data extends Record<string, unknown> = Record<string, unknown>,
   Variables = Record<string, unknown> | never,
 > = {
-  request: { query: string; variables?: Variables };
+  request: { query: DocumentNode; variables?: Variables };
   result: { data?: Data; errors?: GraphQLError[] };
   error?: Error;
 };

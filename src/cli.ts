@@ -14,8 +14,8 @@ const args = parseArgs(
       operations: { type: "string", multiple: true },
       scalar: { type: "string", multiple: true },
       outfile: { type: "string" },
-      useEnums: { type: "boolean", default: false },
-      includeTypenames: { type: "boolean", default: true },
+      enums: { type: "boolean" },
+      notypenames: { type: "boolean" },
     },
   },
 ).values;
@@ -78,8 +78,8 @@ if (args.scalar) {
 
 try {
   const file = await formatCode(codegen(schema, operations, {
-    useEnums: args.useEnums,
-    includeTypenames: args.includeTypenames,
+    useEnums: args.enums ?? false,
+    includeTypenames: !args.notypenames,
     scalars,
   }));
 

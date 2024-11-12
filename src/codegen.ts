@@ -588,8 +588,6 @@ export const codegen = (
       case "ScalarTypeDefinition":
         references[definition.name.value] = [definition, false];
         break;
-      default:
-        throw new Error(`Unhandled definition type '${definition.kind}'`);
     }
   }
 
@@ -658,8 +656,29 @@ export const codegen = (
               );
             }
 
-            if (handledInputs.has(type.value)) return;
-            handledInputs.add(type.value);
+            if (handledInputs.has(type.value) || !inputs[type.value]) return;
+            const stack = [type.value];
+            while (stack.length) {
+              const current = stack.pop()!;
+              const def = inputs[current]?.[0];
+              if (!def) {
+                throw new Error(`Could not find nested input '${current}'`);
+              }
+              const subFieldTypes = def.fields?.map((f) => {
+                let type = f.type;
+                while (type.kind !== Kind.NAMED_TYPE) {
+                  if (type.kind === Kind.NON_NULL_TYPE) type = type.type;
+                  if (type.kind === Kind.LIST_TYPE) type = type.type;
+                }
+                return type.name.value;
+              }).filter((t) => inputs[t]) ?? [];
+              if (subFieldTypes.some((t) => !handledInputs.has(t))) {
+                stack.push(current);
+                stack.push(...subFieldTypes);
+                continue;
+              }
+              handledInputs.add(current);
+            }
 
             // return `type ${type.value} = ${serializeType(inputType)};`;
           },
@@ -759,7 +778,7 @@ ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
       }
       if (useEnums) {
         return `enum ${r.name.value} {
-  ${r.values?.map((r) => r.name.value).join(",\n  ")}
+  ${r.values?.map((r) => r.name.value).join(",\n  ")},
 }`;
       } else {
         return `type ${r.name.value} = ${

@@ -140,7 +140,7 @@ type MapOperationsToBuilders<T, Transforms, Extra> = {
     T[K] extends { data: infer U }
       ? U extends Record<string, unknown> ? U : Record<string, unknown>
       : Record<string, unknown>,
-    T[K] extends { variables: infer U } ? U : unknown,
+    T[K] extends { variables: infer U } ? U : never,
     K extends keyof Transforms ? Transforms[K] : ContravariantEmpty,
     Extra
   >;

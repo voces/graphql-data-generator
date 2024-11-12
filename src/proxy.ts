@@ -873,7 +873,7 @@ export const operation = <
   );
 
   const mock: OperationMock<O["data"], O["variables"]> & Partial<Extra> = {
-    request: { query },
+    request: { query: document },
     result: {},
     ...extra as Extra,
   };

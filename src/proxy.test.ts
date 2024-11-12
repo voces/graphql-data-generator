@@ -447,7 +447,7 @@ Deno.test("operations > queries > nonnullableScalar", () => {
   type Operation = { data: { nonnullableScalar: string } };
 
   assertEquals(operation<Operation>(definitions, scalars, query), {
-    request: { query },
+    request: { query: parse(query) },
     result: { data: { nonnullableScalar: "scalar-String-Query" } },
   });
 
@@ -471,7 +471,7 @@ Deno.test("operations > queries > nullable scalar", () => {
   type Operation = { data: { nullableScalar: string | null } };
 
   assertEquals(operation<Operation>(definitions, scalars, query), {
-    request: { query },
+    request: { query: parse(query) },
     result: { data: { nullableScalar: null } },
   });
 
@@ -479,7 +479,10 @@ Deno.test("operations > queries > nullable scalar", () => {
     operation<Operation>(definitions, scalars, query, {
       data: { nullableScalar: "ok" },
     }),
-    { request: { query }, result: { data: { nullableScalar: "ok" } } },
+    {
+      request: { query: parse(query) },
+      result: { data: { nullableScalar: "ok" } },
+    },
   );
 });
 
@@ -488,7 +491,7 @@ Deno.test("operations > queries > nonnullableNonnullableScalars", () => {
   type Operation = { data: { nonnullableNonnullableScalars: string[] } };
 
   assertEquals(operation<Operation>(definitions, scalars, query), {
-    request: { query },
+    request: { query: parse(query) },
     result: { data: { nonnullableNonnullableScalars: [] } },
   });
 
@@ -497,7 +500,7 @@ Deno.test("operations > queries > nonnullableNonnullableScalars", () => {
       data: { nonnullableNonnullableScalars: ["foo"] },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nonnullableNonnullableScalars: ["foo"] } },
     },
   );
@@ -507,7 +510,7 @@ Deno.test("operations > queries > nonnullableNonnullableScalars", () => {
       data: { nonnullableNonnullableScalars: { 1: "foo" } },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: {
         data: {
           nonnullableNonnullableScalars: ["scalar-String-Query", "foo"],
@@ -521,7 +524,7 @@ Deno.test("operations > queries > nonnullableNonnullableScalars", () => {
       data: { nonnullableNonnullableScalars: { next: "foo" } },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nonnullableNonnullableScalars: ["foo"] } },
     },
   );
@@ -533,7 +536,7 @@ Deno.test("operations > queries > nonnullableNonnullableScalars", () => {
       data: { nonnullableNonnullableScalars: { next: "foo" } },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nonnullableNonnullableScalars: ["foo", "foo"] } },
     },
   );
@@ -543,7 +546,7 @@ Deno.test("operations > queries > nonnullableNonnullableScalars", () => {
       data: { nonnullableNonnullableScalars: { last: "bar" } },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nonnullableNonnullableScalars: ["bar"] } },
     },
   );
@@ -555,7 +558,7 @@ Deno.test("operations > queries > nonnullableNonnullableScalars", () => {
       data: { nonnullableNonnullableScalars: { last: "bar" } },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nonnullableNonnullableScalars: ["bar"] } },
     },
   );
@@ -566,7 +569,7 @@ Deno.test("operations > queries > nullableNonnullableScalars", () => {
   type Operation = { data: { nullableNonnullableScalars: string[] | null } };
 
   assertEquals(operation<Operation>(definitions, scalars, query), {
-    request: { query },
+    request: { query: parse(query) },
     result: { data: { nullableNonnullableScalars: null } },
   });
 
@@ -575,7 +578,7 @@ Deno.test("operations > queries > nullableNonnullableScalars", () => {
       data: { nullableNonnullableScalars: [] },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nullableNonnullableScalars: [] } },
     },
   );
@@ -585,7 +588,7 @@ Deno.test("operations > queries > nullableNonnullableScalars", () => {
       data: { nullableNonnullableScalars: ["foo"] },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nullableNonnullableScalars: ["foo"] } },
     },
   );
@@ -595,7 +598,7 @@ Deno.test("operations > queries > nullableNonnullableScalars", () => {
       data: { nullableNonnullableScalars: { 1: "foo" } },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: {
         data: { nullableNonnullableScalars: ["scalar-String-Query", "foo"] },
       },
@@ -610,7 +613,7 @@ Deno.test("operations > queries > nullableNullableScalars", () => {
   };
 
   assertEquals(operation<Operation>(definitions, scalars, query), {
-    request: { query },
+    request: { query: parse(query) },
     result: { data: { nullableNullableScalars: null } },
   });
 
@@ -619,7 +622,7 @@ Deno.test("operations > queries > nullableNullableScalars", () => {
       data: { nullableNullableScalars: [] },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nullableNullableScalars: [] } },
     },
   );
@@ -629,7 +632,7 @@ Deno.test("operations > queries > nullableNullableScalars", () => {
       data: { nullableNullableScalars: ["foo"] },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nullableNullableScalars: ["foo"] } },
     },
   );
@@ -639,7 +642,7 @@ Deno.test("operations > queries > nullableNullableScalars", () => {
       data: { nullableNullableScalars: { 1: "foo" } },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nullableNullableScalars: [null, "foo"] } },
     },
   );
@@ -656,7 +659,7 @@ Deno.test(
     };
 
     assertEquals(operation<Operation>(definitions, scalars, query), {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nonnullableNonnullableNonnullableScalars: [] } },
     });
 
@@ -665,7 +668,7 @@ Deno.test(
         data: { nonnullableNonnullableNonnullableScalars: [] },
       }),
       {
-        request: { query },
+        request: { query: parse(query) },
         result: { data: { nonnullableNonnullableNonnullableScalars: [] } },
       },
     );
@@ -675,7 +678,7 @@ Deno.test(
         data: { nonnullableNonnullableNonnullableScalars: [["foo"]] },
       }),
       {
-        request: { query },
+        request: { query: parse(query) },
         result: {
           data: { nonnullableNonnullableNonnullableScalars: [["foo"]] },
         },
@@ -689,7 +692,7 @@ Deno.test(
         },
       }),
       {
-        request: { query },
+        request: { query: parse(query) },
         result: {
           data: {
             nonnullableNonnullableNonnullableScalars: [[], [
@@ -714,7 +717,7 @@ Deno.test(
     };
 
     assertEquals(operation<Operation>(definitions, scalars, query), {
-      request: { query },
+      request: { query: parse(query) },
       result: { data: { nullableNullableNullableScalars: null } },
     });
 
@@ -723,7 +726,7 @@ Deno.test(
         data: { nullableNullableNullableScalars: [] },
       }),
       {
-        request: { query },
+        request: { query: parse(query) },
         result: { data: { nullableNullableNullableScalars: [] } },
       },
     );
@@ -733,7 +736,7 @@ Deno.test(
         data: { nullableNullableNullableScalars: [["foo"]] },
       }),
       {
-        request: { query },
+        request: { query: parse(query) },
         result: { data: { nullableNullableNullableScalars: [["foo"]] } },
       },
     );
@@ -743,7 +746,7 @@ Deno.test(
         data: { nullableNullableNullableScalars: { 1: { 1: "foo" } } },
       }),
       {
-        request: { query },
+        request: { query: parse(query) },
         result: {
           data: { nullableNullableNullableScalars: [null, [null, "foo"]] },
         },
@@ -757,7 +760,7 @@ Deno.test("operations > queries > aliasing", () => {
   type Operation = { data: { foo: string } };
 
   assertEquals(operation<Operation>(definitions, scalars, query), {
-    request: { query },
+    request: { query: parse(query) },
     result: { data: { foo: "scalar-String-Query" } },
   });
 });
@@ -876,7 +879,7 @@ Deno.test("operations > queries > error", () => {
     operation<Operation>(definitions, scalars, query, {
       error: new Error("oops"),
     }),
-    { request: { query }, result: {}, error: new Error("oops") },
+    { request: { query: parse(query) }, result: {}, error: new Error("oops") },
   );
 });
 
@@ -892,7 +895,7 @@ Deno.test("operations > queries > errors", () => {
       errors: [new GraphQLError("oops")],
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: {
         // TODO: Should allow and default to null data if errors present, unless
         // patched in
@@ -913,7 +916,7 @@ Deno.test("operations > mutations", async () => {
     }),
     {
       request: {
-        query,
+        query: parse(query),
         variables: {
           input: {
             email: "scalar-String-CreateUserInput",
@@ -950,7 +953,7 @@ Deno.test("operations > subscriptions", async () => {
       data: { postCreated: { title: "title" } },
     }),
     {
-      request: { query },
+      request: { query: parse(query) },
       result: {
         data: {
           postCreated: {
