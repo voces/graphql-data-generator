@@ -496,10 +496,16 @@ const simpleType = (
 export const codegen = (
   schema: string,
   files: { path: string; content: string }[],
-  { useEnums = true, scalars = {}, includeTypenames = true }: {
+  {
+    useEnums = true,
+    scalars = {},
+    includeTypenames = true,
+    exports = [],
+  }: {
     useEnums?: boolean;
     scalars?: Record<string, string | undefined>;
     includeTypenames?: boolean;
+    exports?: ("types" | "operations")[];
   } = {},
 ): string => {
   const schemaDoc = parse(schema);
@@ -627,11 +633,24 @@ export const codegen = (
     }
   }
 
+  const operationDataName = (name: string, type: string) => {
+    if (inputs[name] || types[name]) {
+      return `${name}${type[0].toUpperCase()}${type.slice(1)}`;
+    }
+    for (const key in operations) {
+      if (type === key) continue;
+      if (
+        operations[key as keyof typeof operations].some((o) => o.name === name)
+      ) return `${name}${type[0].toUpperCase()}${type.slice(1)}`;
+    }
+    return name;
+  };
+
   const handledInputs = new Set<string>();
 
   const serializedTypes = Object.entries(operations).filter(([, v]) => v.length)
     .flatMap((
-      [name, collection],
+      [operationType, collection],
     ) => [
       ...collection.flatMap((c) =>
         c.definition.variableDefinitions?.map(
@@ -684,36 +703,54 @@ export const codegen = (
           },
         ).filter(Boolean)
       ),
-      `export type ${operationNames[name].types} = {
+      ...collection.flatMap((o) => {
+        const name = operationDataName(o.name, operationType);
+
+        const arr = [
+          `${exports.includes("operations") ? "export " : ""}type ${name} = ${
+            serializeType(
+              getOperationType(
+                o.definition,
+                types,
+                fragments,
+                roots[o.definition.operation],
+                references,
+                includeTypenames,
+              ),
+              false,
+            )
+          };`,
+        ];
+
+        if (o.definition.variableDefinitions?.length) {
+          arr.push(
+            `${
+              exports.includes("operations") ? "export " : ""
+            }type ${name}Variables = ${
+              serializeType(
+                getOperationVariables(o.definition, references),
+                true,
+              )
+            };`,
+          );
+        }
+
+        return arr;
+      }),
+      `export type ${operationNames[operationType].types} = {
 ${
         collection.map((o) => {
-          const data = serializeType(
-            getOperationType(
-              o.definition,
-              types,
-              fragments,
-              roots[o.definition.operation],
-              references,
-              includeTypenames,
-            ),
-            false,
-            2,
-          );
-          const variables = getOperationVariables(o.definition, references);
-
-          return `  ${o.name}: {
-    data: ${data};${
-            variables.kind === "Object" && Object.keys(variables.value).length
-              ? `
-    variables: ${serializeType(variables, true, 2)};`
+          const name = operationDataName(o.name, operationType);
+          return `  ${o.name}: { data: ${name};${
+            o.definition.variableDefinitions?.length
+              ? ` variables: ${name}Variables;`
               : ""
-          }
-  };`;
+          } };`;
         }).join("\n")
       }
 };
 
-export const ${operationNames[name].list} = {
+export const ${operationNames[operationType].list} = {
 ${collection.map((o) => `  ${o.name}: "${o.path}",`).join("\n")}
 };`,
     ]);
@@ -723,8 +760,11 @@ ${collection.map((o) => `  ${o.name}: "${o.path}",`).join("\n")}
       ...Array.from(handledInputs).map((i) => {
         const def = inputs[i]?.[0];
         if (!def) throw new Error(`Could not find input '${i}'`);
-        return `type ${i} = ${
-          serializeType(serializeInput(def.fields ?? [], false, {}, references))
+        return `${exports.includes("types") ? "export " : ""}type ${i} = ${
+          serializeType(
+            serializeInput(def.fields ?? [], false, {}, references),
+            true,
+          )
         };`;
       }),
       `export type Inputs = {
@@ -747,7 +787,7 @@ ${Array.from(handledInputs).map((i) => `  ${i}: ${i};`).join("\n")}
   if (usedTypes.length) {
     serializedTypes.unshift(
       ...usedTypes.map(([name, type, usage]) =>
-        `type ${name} = {
+        `${exports.includes("types") ? "export " : ""}type ${name} = {
 ${includeTypenames ? `  __typename: "${name}";\n` : ""}${
           type.fields?.filter((f) => usage.has(f.name.value)).map((v) =>
             `  ${v.name.value}: ${serializeType(simpleType(v.type, types))};`
@@ -771,17 +811,23 @@ ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
     ...usedReferences.map((r) => {
       // TODO: warn if missing and use unknown instead
       if (r.kind === "ScalarTypeDefinition") {
-        return `type ${r.name.value} = ${
+        return `${
+          exports.includes("types") ? "export " : ""
+        }type ${r.name.value} = ${
           scalars[r.name.value] ??
             raise(`Could not find scalar '${r.name.value}'`)
         };`;
       }
       if (useEnums) {
-        return `enum ${r.name.value} {
+        return `${
+          exports.includes("types") ? "export " : ""
+        }enum ${r.name.value} {
   ${r.values?.map((r) => r.name.value).join(",\n  ")},
 }`;
       } else {
-        return `type ${r.name.value} = ${
+        return `${
+          exports.includes("types") ? "export " : ""
+        }type ${r.name.value} = ${
           r.values?.map((r) => `"${r.name.value}"`).join(" | ")
         };`;
       }

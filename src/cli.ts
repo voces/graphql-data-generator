@@ -16,6 +16,7 @@ const args = parseArgs(
       outfile: { type: "string" },
       enums: { type: "boolean" },
       notypenames: { type: "boolean" },
+      exports: { type: "string", multiple: true },
     },
   },
 ).values;
@@ -76,11 +77,22 @@ if (args.scalar) {
   }
 }
 
+const validExports = ["operations", "types"] as const;
+const exports = args.exports
+  ? args.exports.filter((e): e is typeof validExports[number] => {
+    if (!validExports.includes(e as typeof validExports[number])) {
+      throw new Error(`Invalid export. Must be ${validExports.join(", ")}`);
+    }
+    return true;
+  })
+  : [];
+
 try {
   const file = await formatCode(codegen(schema, operations, {
     useEnums: args.enums ?? false,
     includeTypenames: !args.notypenames,
     scalars,
+    exports,
   }));
 
   if (args.outfile) await Deno.writeTextFile(args.outfile, file);
