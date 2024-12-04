@@ -850,8 +850,8 @@ export const operation = <
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   query: string,
   ...patches: (Patch<Omit<O, "error" | "errors">> & {
-    error?: O["error"];
-    errors?: O["errors"];
+    error?: Error;
+    errors?: GraphQLError[];
   } & Partial<Extra>)[]
 ): OperationMock<O["data"], O["variables"]> & Partial<Extra> => {
   const document = parse(query);

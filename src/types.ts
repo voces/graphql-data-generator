@@ -45,3 +45,11 @@ export type SimpleOperationMock<
   error?: Error;
   errors?: GraphQLError[];
 };
+
+export type SimpleOperationPatch<
+  Data extends Record<string, unknown> = Record<string, unknown>,
+  Variables = Record<string, unknown> | never,
+> = Patch<{ data: Data; variables?: Variables }> & {
+  error?: Error;
+  errors?: GraphQLError[];
+};

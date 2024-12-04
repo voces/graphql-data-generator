@@ -706,18 +706,21 @@ export const codegen = (
       ...collection.flatMap((o) => {
         const name = operationDataName(o.name, operationType);
 
+        const resolvedOperationType = getOperationType(
+          o.definition,
+          types,
+          fragments,
+          roots[o.definition.operation],
+          references,
+          includeTypenames,
+        );
+
         const arr = [
           `${exports.includes("operations") ? "export " : ""}type ${name} = ${
             serializeType(
-              getOperationType(
-                o.definition,
-                types,
-                fragments,
-                roots[o.definition.operation],
-                references,
-                includeTypenames,
-              ),
+              resolvedOperationType,
               false,
+              undefined,
             )
           };`,
         ];

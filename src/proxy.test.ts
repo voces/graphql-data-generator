@@ -874,33 +874,72 @@ Deno.test("operations > queries > variables", async () => {
 Deno.test("operations > queries > error", () => {
   const query = "query Foo { nonnullableScalar }";
   type Operation = { data: { nonnullableScalar: string }; error: Error };
+  const error = new Error("oops");
 
   assertEquals(
-    operation<Operation>(definitions, scalars, query, {
-      error: new Error("oops"),
-    }),
-    { request: { query: parse(query) }, result: {}, error: new Error("oops") },
+    operation<Operation>(definitions, scalars, query, { error }),
+    { request: { query: parse(query) }, result: {}, error },
   );
 });
 
 Deno.test("operations > queries > errors", () => {
   const query = "query Foo { nonnullableScalar }";
-  type Operation = {
-    data: { nonnullableScalar: string };
-    errors: GraphQLError[];
-  };
+  type Operation = { data: { nonnullableScalar: string } };
+  const error = new GraphQLError("oops");
 
   assertEquals(
-    operation<Operation>(definitions, scalars, query, {
-      errors: [new GraphQLError("oops")],
-    }),
+    operation<Operation>(definitions, scalars, query, { errors: [error] }),
     {
       request: { query: parse(query) },
       result: {
         // TODO: Should allow and default to null data if errors present, unless
         // patched in
         data: { nonnullableScalar: "scalar-String-Query" },
-        errors: [new GraphQLError("oops")],
+        errors: [error],
+      },
+    },
+  );
+});
+
+Deno.test("operations > queries > patch > error", () => {
+  const query = "query Foo { nonnullableScalar }";
+  type Operation = { data: { nonnullableScalar: string } };
+  const error = new Error("some error");
+
+  assertEquals(
+    operation<Operation>(
+      definitions,
+      scalars,
+      query,
+      { data: { nonnullableScalar: "myvalue" } },
+      { error },
+    ),
+    {
+      request: { query: parse(query) },
+      error,
+      result: {},
+    },
+  );
+});
+
+Deno.test("operations > queries > patch > errors", () => {
+  const query = "query Foo { nonnullableScalar }";
+  type Operation = { data: { nonnullableScalar: string } };
+  const error = new GraphQLError("oops");
+
+  assertEquals(
+    operation<Operation>(
+      definitions,
+      scalars,
+      query,
+      { data: { nonnullableScalar: "myvalue" } },
+      { errors: [error] },
+    ),
+    {
+      request: { query: parse(query) },
+      result: {
+        data: { nonnullableScalar: "myvalue" },
+        errors: [error],
       },
     },
   );

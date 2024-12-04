@@ -3,6 +3,7 @@ import type {
   OperationMock,
   Patch,
   SimpleOperationMock,
+  SimpleOperationPatch,
 } from "./types.ts";
 
 // Very similar to object patch, except without array helpers
@@ -28,10 +29,10 @@ type OperationBuilder<
 > =
   & ((
     ...patches: (
-      | Patch<SimpleOperationMock<Data, Variables>> & Partial<Extra>
+      | SimpleOperationPatch<Data, Variables> & Partial<Extra>
       | ((
         prev: SimpleOperationMock<Data, Variables>,
-      ) => Patch<SimpleOperationMock<Data, Variables>>)
+      ) => SimpleOperationPatch<Data, Variables>)
     )[]
   ) => OperationBuilderWithMock<Data, Variables, Transforms, Extra>)
   & {
@@ -46,7 +47,7 @@ type OperationBuilder<
         | ((variables: Variables, data: Data) => Patch<Data>),
     ) => OperationBuilderWithMock<Data, Variables, Transforms, Extra>;
     patch: (
-      patch: Patch<{ data: Data; variables: Variables }>,
+      patch: SimpleOperationPatch<Data, Variables>,
     ) => OperationBuilderWithMock<Data, Variables, Transforms, Extra>;
   }
   & {
