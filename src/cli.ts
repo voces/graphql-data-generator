@@ -12,6 +12,7 @@ const args = parseArgs(
       banner: { type: "string" },
       enums: { type: "string" },
       exports: { type: "string", multiple: true },
+      namingConvention: { type: "string" },
       notypenames: { type: "boolean" },
       operations: { type: "string", multiple: true },
       outfile: { type: "string" },
@@ -105,6 +106,7 @@ try {
     scalars,
     exports,
     typesFile: args.typesFile,
+    namingConvention: args.namingConvention,
   }));
 
   if (args.outfile) await Deno.writeTextFile(args.outfile, file);

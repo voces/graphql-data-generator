@@ -1,6 +1,10 @@
+# 0.2.2
+
+- **[feat]** Added `namingConvention` to CLI, `codegen`, and plugin.
+
 # 0.2.1
 
-- **[bugfix]** Switched to using literals instead of OperationTypeNode to
+- **[bugfix]** Switched to using literals instead of `OperationTypeNode` to
   improve backwards compatibility.
 
 # 0.2.0

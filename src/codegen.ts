@@ -23,6 +23,10 @@ import fg from "npm:fast-glob";
 import { join, relative } from "node:path";
 import { raise } from "./util.ts";
 import process from "node:process";
+import {
+  convertFactory,
+  type NamingConvention,
+} from "npm:@graphql-codegen/visitor-plugin-common";
 
 type SerializableType =
   | { kind: "Name"; value: string; optional: boolean }
@@ -514,14 +518,18 @@ export const codegen = (
     includeTypenames = true,
     exports = [],
     typesFile,
+    namingConvention = "keep",
   }: {
     enums?: string;
     scalars?: Record<string, string | undefined>;
     includeTypenames?: boolean;
     exports?: ("types" | "operations")[];
     typesFile?: string;
+    namingConvention?: NamingConvention;
   } = {},
 ): string => {
+  const rename = convertFactory({ namingConvention });
+
   const schemaDoc = parse(
     typeof schema === "string" ? schema : printSchema(schema),
   );
@@ -672,9 +680,10 @@ export const codegen = (
     }
   }
 
-  const operationDataName = (name: string, type: string) => {
+  const operationDataName = (operation: Operation, type: string) => {
+    const name = operation.name;
     if (inputs[name] || types[name] || typesFile) {
-      return `${name}${type[0].toUpperCase()}${type.slice(1)}`;
+      return rename(`${name}${type[0].toUpperCase()}${type.slice(1)}`);
     }
     for (const key in operations) {
       if (type === key) continue;
@@ -745,7 +754,7 @@ export const codegen = (
         ).filter(Boolean)
       ).filter(filterOutputTypes),
       ...collection.flatMap((o) => {
-        const name = operationDataName(o.name, operationType);
+        const name = operationDataName(o, operationType);
 
         const resolvedOperationType = getOperationType(
           o.definition,
@@ -785,7 +794,7 @@ export const codegen = (
       `export type ${operationNames[operationType].types} = {
 ${
         collection.map((o) => {
-          const name = operationDataName(o.name, operationType);
+          const name = operationDataName(o, operationType);
           return `  ${o.name}: { data: ${name};${
             o.definition.variableDefinitions?.length
               ? ` variables: ${name}Variables;`
@@ -845,7 +854,7 @@ ${includeTypenames ? `  __typename: "${name}";\n` : ""}${
 };`
       ).filter(filterOutputTypes),
       `export type Types = {
-${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
+${usedTypes.map(([name]) => `  ${name}: ${rename(name)};`).join("\n")}
 };`,
       `export const types = [${
         usedTypes.map(([name]) => `"${name}"`).join(", ")
@@ -886,7 +895,7 @@ ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
   if (typesFile) {
     const operationsImports = (operations: Operation[]) =>
       operations.flatMap((o) => {
-        const prefix = operationDataName(o.name, o.definition.operation);
+        const prefix = operationDataName(o, o.definition.operation);
         return o.definition.variableDefinitions?.length
           ? [`${prefix}`, `${prefix}Variables`]
           : `${prefix}`;
@@ -895,8 +904,8 @@ ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
       ...operationsImports(operations.query),
       ...operationsImports(operations.mutation),
       ...operationsImports(operations.subscription),
-      ...usedTypes.map((u) => u[0]),
-      ...Array.from(handledInputs),
+      ...usedTypes.map((u) => rename(u[0])),
+      ...Array.from(handledInputs, (i) => rename(i)),
     ];
     serializedTypes.unshift(
       `import {\n  ${imports.sort().join(",\n  ")},

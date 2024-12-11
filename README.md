@@ -96,6 +96,10 @@ const createPost = build.CreatePost({ data: { createPost: { id: "post-id" } } })
   - `import:file` Import enums from the provided path. E.g.,
     `import { Status } from "file";`
 - `exports=[operations|types]`: Toggle exporting of operations and/or types.
+- `namingConvention=NamingConvention`: Specify a
+  [`NamingConvention`](https://the-guild.dev/graphql/codegen/docs/config-reference/naming-convention)
+  for generated types. Defaults to `change-case-all#pascalCase` if using the
+  plugin, otherwise defaults to `keep`.
 - `notypenames`: Toggle automatic inclusion of `__typename`.
 - `operations=dir`: Restrict generation of operations to a specific directory.
   Can be used multiple times for multiple directories.

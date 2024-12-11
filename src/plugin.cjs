@@ -4,7 +4,7 @@ module.exports = {
     return (config.banner ?? "") + codegen(
       schema,
       documents.map((d) => ({ path: d.location, content: d.rawSDL })),
-      config,
+      { namingConvention: "change-case-all#pascalCase", ...config },
     );
   },
 };
