@@ -3,6 +3,7 @@ import type {
   EnumTypeDefinitionNode,
   FieldDefinitionNode,
   FragmentDefinitionNode,
+  GraphQLSchema,
   InputObjectTypeDefinitionNode,
   InputValueDefinitionNode,
   InterfaceTypeDefinitionNode,
@@ -17,10 +18,11 @@ import type {
   TypeNode,
   UnionTypeDefinitionNode,
 } from "npm:graphql";
-import { Kind, parse } from "npm:graphql";
+import { Kind, OperationTypeNode, parse, printSchema } from "npm:graphql";
 import fg from "npm:fast-glob";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { raise } from "./util.ts";
+import process from "node:process";
 
 type SerializableType =
   | { kind: "Name"; value: string; optional: boolean }
@@ -390,6 +392,8 @@ const serializeType = (
   }
 };
 
+const drop = () => false;
+
 const serializeInput = (
   fields: readonly InputValueDefinitionNode[],
   optional: boolean,
@@ -493,22 +497,36 @@ const simpleType = (
   }
 };
 
+const defaultScalars = {
+  Int: "number",
+  Float: "number",
+  String: "string",
+  Boolean: "boolean",
+  ID: "string",
+};
+
 export const codegen = (
-  schema: string,
+  schema: GraphQLSchema | string,
   files: { path: string; content: string }[],
   {
-    useEnums = true,
-    scalars = {},
+    enums = "literals",
+    scalars,
     includeTypenames = true,
     exports = [],
+    typesFile,
   }: {
-    useEnums?: boolean;
+    enums?: string;
     scalars?: Record<string, string | undefined>;
     includeTypenames?: boolean;
     exports?: ("types" | "operations")[];
+    typesFile?: string;
   } = {},
 ): string => {
-  const schemaDoc = parse(schema);
+  const schemaDoc = parse(
+    typeof schema === "string" ? schema : printSchema(schema),
+  );
+
+  scalars = { ...defaultScalars, ...scalars };
 
   const types: Record<
     string,
@@ -543,18 +561,39 @@ export const codegen = (
   let mutation: Record<string, FieldDefinitionNode | undefined> = {};
   let subscription: Record<string, FieldDefinitionNode | undefined> = {};
 
+  let queryKey = "Query";
+  let mutationKey = "Mutation";
+  let subscriptionKey = "Subscription";
+
   for (const definition of schemaDoc.definitions) {
     switch (definition.kind) {
+      case "SchemaDefinition":
+        {
+          for (const operationType of definition.operationTypes) {
+            switch (operationType.operation) {
+              case OperationTypeNode.QUERY:
+                queryKey = operationType.type.name.value;
+                break;
+              case OperationTypeNode.MUTATION:
+                mutationKey = operationType.type.name.value;
+                break;
+              case OperationTypeNode.SUBSCRIPTION:
+                subscriptionKey = operationType.type.name.value;
+                break;
+            }
+          }
+        }
+        break;
       case "ObjectTypeDefinition":
-        if (definition.name.value === "Query") {
+        if (definition.name.value === queryKey) {
           query = Object.fromEntries(
             definition.fields?.map((f) => [f.name.value, f] as const) ?? [],
           );
-        } else if (definition.name.value === "Mutation") {
+        } else if (definition.name.value === mutationKey) {
           mutation = Object.fromEntries(
             definition.fields?.map((f) => [f.name.value, f] as const) ?? [],
           );
-        } else if (definition.name.value === "Subscription") {
+        } else if (definition.name.value === subscriptionKey) {
           subscription = Object.fromEntries(
             definition.fields?.map((f) => [f.name.value, f] as const) ?? [],
           );
@@ -634,7 +673,7 @@ export const codegen = (
   }
 
   const operationDataName = (name: string, type: string) => {
-    if (inputs[name] || types[name]) {
+    if (inputs[name] || types[name] || typesFile) {
       return `${name}${type[0].toUpperCase()}${type.slice(1)}`;
     }
     for (const key in operations) {
@@ -647,6 +686,8 @@ export const codegen = (
   };
 
   const handledInputs = new Set<string>();
+
+  const filterOutputTypes = typesFile ? drop : Boolean;
 
   const serializedTypes = Object.entries(operations).filter(([, v]) => v.length)
     .flatMap((
@@ -702,7 +743,7 @@ export const codegen = (
             // return `type ${type.value} = ${serializeType(inputType)};`;
           },
         ).filter(Boolean)
-      ),
+      ).filter(filterOutputTypes),
       ...collection.flatMap((o) => {
         const name = operationDataName(o.name, operationType);
 
@@ -739,7 +780,8 @@ export const codegen = (
         }
 
         return arr;
-      }),
+      }).filter(filterOutputTypes),
+      ,
       `export type ${operationNames[operationType].types} = {
 ${
         collection.map((o) => {
@@ -754,13 +796,17 @@ ${
 };
 
 export const ${operationNames[operationType].list} = {
-${collection.map((o) => `  ${o.name}: "${o.path}",`).join("\n")}
+${
+        collection.map((o) =>
+          `  ${o.name}: "${relative(process.cwd(), o.path)}",`
+        ).join("\n")
+      }
 };`,
     ]);
 
   if (handledInputs.size) {
     serializedTypes.unshift(
-      ...Array.from(handledInputs).map((i) => {
+      ...(Array.from(handledInputs)).map((i) => {
         const def = inputs[i]?.[0];
         if (!def) throw new Error(`Could not find input '${i}'`);
         return `${exports.includes("types") ? "export " : ""}type ${i} = ${
@@ -769,7 +815,7 @@ ${collection.map((o) => `  ${o.name}: "${o.path}",`).join("\n")}
             true,
           )
         };`;
-      }),
+      }).filter(filterOutputTypes),
       `export type Inputs = {
 ${Array.from(handledInputs).map((i) => `  ${i}: ${i};`).join("\n")}
 };`,
@@ -797,7 +843,7 @@ ${includeTypenames ? `  __typename: "${name}";\n` : ""}${
           ).join("\n")
         }
 };`
-      ),
+      ).filter(filterOutputTypes),
       `export type Types = {
 ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
 };`,
@@ -821,21 +867,53 @@ ${usedTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}
             raise(`Could not find scalar '${r.name.value}'`)
         };`;
       }
-      if (useEnums) {
+      if (enums === "enums") {
         return `${
           exports.includes("types") ? "export " : ""
         }enum ${r.name.value} {
   ${r.values?.map((r) => r.name.value).join(",\n  ")},
 }`;
-      } else {
+      } else if (enums === "literals") {
         return `${
           exports.includes("types") ? "export " : ""
         }type ${r.name.value} = ${
           r.values?.map((r) => `"${r.name.value}"`).join(" | ")
         };`;
       }
-    }),
+    }).filter(filterOutputTypes),
   );
+
+  if (typesFile) {
+    const operationsImports = (operations: Operation[]) =>
+      operations.flatMap((o) => {
+        const prefix = operationDataName(o.name, o.definition.operation);
+        return o.definition.variableDefinitions?.length
+          ? [`${prefix}`, `${prefix}Variables`]
+          : `${prefix}`;
+      });
+    const imports = [
+      ...operationsImports(operations.query),
+      ...operationsImports(operations.mutation),
+      ...operationsImports(operations.subscription),
+      ...usedTypes.map((u) => u[0]),
+      ...Array.from(handledInputs),
+    ];
+    serializedTypes.unshift(
+      `import {\n  ${imports.sort().join(",\n  ")},
+} from "${typesFile}";`,
+    );
+  } else if (
+    enums.startsWith("import:") &&
+    usedReferences.some((r) => r.kind === Kind.ENUM_TYPE_DEFINITION)
+  ) {
+    serializedTypes.unshift(
+      `import { ${
+        usedReferences.filter((r) => r.kind === Kind.ENUM_TYPE_DEFINITION).map(
+          (r) => r.name.value,
+        ).join(", ")
+      } } from "${enums.slice(7)}";`,
+    );
+  }
 
   return serializedTypes.join("\n\n") + "\n";
 };

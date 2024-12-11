@@ -1064,6 +1064,16 @@ Deno.test("unions", () => {
     ).__typename,
     "Post",
   );
+
+  assertEquals(
+    proxy<{ __typename: "User" | "Post"; title?: string }>(
+      definitions,
+      scalars,
+      "SearchResult",
+      { __typename: "Post" },
+    ).__typename,
+    "Post",
+  );
 });
 
 Deno.test("unions > list", () => {

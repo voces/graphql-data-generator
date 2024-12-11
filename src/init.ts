@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
-import { parse } from "npm:graphql";
+import { type DocumentNode, Kind, parse } from "npm:graphql";
 import { dirname, join } from "node:path";
+import { gqlPluckFromCodeStringSync } from "npm:@graphql-tools/graphql-tag-pluck";
 
 import type {
   Build,
@@ -20,10 +21,49 @@ import { toObject } from "./util.ts";
 
 const files: Record<string, string> = {};
 const loadFile = (path: string): string =>
-  files[path] = readFileSync(path, "utf-8").replace(
+  files[path] || (files[path] = readFileSync(path, "utf-8").replace(
+    /#import "(.*)"/,
+    (_, fragmentPath) => loadFile(join(dirname(path), fragmentPath)),
+  ));
+
+const getOperationContentMap: Record<
+  string,
+  DocumentNode | Record<string, DocumentNode>
+> = {};
+const getOperationContent = (
+  path: string,
+  operationName: string,
+): DocumentNode => {
+  const existing = getOperationContentMap[path];
+  if (existing) {
+    if (existing.kind === Kind.DOCUMENT) return existing as DocumentNode;
+    return (getOperationContentMap[path] as Record<string, DocumentNode>)[
+      operationName
+    ];
+  }
+
+  const fileContent = readFileSync(path, "utf-8").replace(
     /#import "(.*)"/,
     (_, fragmentPath) => loadFile(join(dirname(path), fragmentPath)),
   );
+
+  try {
+    const sources = gqlPluckFromCodeStringSync(path, fileContent);
+    getOperationContentMap[path] = Object.fromEntries(sources.map((s) => {
+      const document = parse(s);
+      const firstOp = document.definitions.find((d) =>
+        d.kind === Kind.OPERATION_DEFINITION
+      );
+      if (!firstOp) throw new Error(`Cound not find an operation in ${path}`);
+
+      return [firstOp.name?.value, document];
+    }));
+  } catch {
+    getOperationContentMap[path] = parse(fileContent);
+  }
+
+  return getOperationContent(path, operationName);
+};
 
 // - Types will be suffixed with their type: fooQuery or fooMutation
 export const init = <
@@ -243,7 +283,7 @@ export const init = <
 
   const operationBuilder = (name: string, path: string) =>
     addOperationTransforms(name, (...patches: OperationPatch[]) => {
-      const query = files[path] ?? loadFile(path);
+      const query = getOperationContent(path, name);
       if (transforms[name] && "default" in transforms[name]) {
         patches = [transforms[name].default as OperationPatch, ...patches];
       }

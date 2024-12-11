@@ -1,4 +1,4 @@
-import { parse } from "npm:graphql";
+import { Kind, parse } from "npm:graphql";
 import { assertEquals } from "jsr:@std/assert";
 import {
   type Inputs,
@@ -374,7 +374,10 @@ Deno.test("query > empty patch clones", () => {
     set.add(object);
     for (const prop in object) {
       const value = object[prop];
-      if (value && typeof value === "object") {
+      if (
+        value && typeof value === "object" &&
+        (!("kind" in value) || value.kind !== Kind.DOCUMENT)
+      ) {
         getObjects(value as Record<string, unknown>, set);
       }
     }

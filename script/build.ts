@@ -8,6 +8,10 @@ await build({
     kind: "bin",
     name: "graphql-data-generator",
     path: "./src/cli.ts",
+  }, {
+    kind: "export",
+    name: "./plugin",
+    path: "./src/plugin.cjs",
   }],
   outDir: "./npm",
   shims: {
@@ -20,6 +24,10 @@ await build({
   mappings: {
     "npm:graphql": {
       name: "graphql",
+      peerDependency: true,
+    },
+    "npm:@graphql-tools/graphql-tag-pluck": {
+      name: "@graphql-tools/graphql-tag-pluck",
       peerDependency: true,
     },
   },
@@ -39,10 +47,25 @@ await build({
   async postBuild() {
     Deno.copyFileSync("README.md", "npm/README.md");
     const pkg = JSON.parse(await Deno.readTextFile("npm/package.json"));
-    const prev = pkg.dependencies.graphql;
-    delete pkg.dependencies.graphql;
+
     if (!pkg.peerDependencies) pkg.peerDependencies = {};
-    pkg.peerDependencies.graphql = prev;
+
+    const prevGraphql = pkg.dependencies.graphql;
+    delete pkg.dependencies.graphql;
+    pkg.peerDependencies.graphql = prevGraphql;
+
+    const prevGqlPluck = pkg.dependencies["@graphql-tools/graphql-tag-pluck"];
+    delete pkg.dependencies["@graphql-tools/graphql-tag-pluck"];
+    pkg.peerDependencies["@graphql-tools/graphql-tag-pluck"] = prevGqlPluck;
+
+    for (const key in pkg.exports) {
+      pkg.exports[key] = {
+        import: pkg.exports[key].import.default,
+        require: pkg.exports[key].import.default,
+        types: pkg.exports[key].import.types,
+        default: pkg.exports[key].import.default,
+      };
+    }
     await Deno.writeTextFile("npm/package.json", JSON.stringify(pkg, null, 2));
   },
 });

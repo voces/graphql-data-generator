@@ -1,6 +1,7 @@
 import type {
   ConstValueNode,
   DefinitionNode,
+  DocumentNode,
   EnumTypeDefinitionNode,
   FragmentDefinitionNode,
   GraphQLError,
@@ -182,7 +183,9 @@ const resolveConcreteType = <T>(
 
   for (const field in patch) {
     options = options.filter((o) =>
-      o.fields?.some((f) => f.name.value === field)
+      field === "__typename"
+        ? o.name.value === patch[field]
+        : o.fields?.some((f) => f.name.value === field)
     );
     if (options.length === 1) return options[0];
   }
@@ -848,13 +851,13 @@ export const operation = <
 >(
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
-  query: string,
+  query: string | DocumentNode,
   ...patches: (Patch<Omit<O, "error" | "errors">> & {
     error?: Error;
     errors?: GraphQLError[];
   } & Partial<Extra>)[]
 ): OperationMock<O["data"], O["variables"]> & Partial<Extra> => {
-  const document = parse(query);
+  const document = typeof query === "string" ? parse(query) : query;
 
   const operations = document.definitions.filter(
     (d): d is OperationDefinitionNode => d.kind === Kind.OPERATION_DEFINITION,

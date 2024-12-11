@@ -56,14 +56,11 @@ Deno.test("nested input types", () => {
         }
         `,
       }],
-      { scalars: { Boolean: "boolean" } },
     ),
     trimIndent(`
     type Boolean = boolean;
 
-    enum Status {
-      Ignore,
-    }
+    type Status = "Ignore";
 
     type Foo = {
       bar?: Boolean | null;
@@ -134,7 +131,6 @@ Deno.test("nested types", () => {
         }
         `,
       }],
-      { scalars: { Boolean: "boolean" } },
     ),
     trimIndent(`
     type Boolean = boolean;
@@ -200,7 +196,6 @@ Deno.test("alias > query & type", () => {
         }
         `,
       }],
-      { scalars: { ID: "string" } },
     ),
     trimIndent(`
     type ID = string;
@@ -259,7 +254,6 @@ Deno.test("alias > mutation & input", () => {
         }
         `,
       }],
-      { scalars: { Boolean: "boolean", ID: "string" } },
     ),
     trimIndent(`
     type Boolean = boolean;
@@ -323,7 +317,6 @@ Deno.test("alias > query & subscription", () => {
         }
         `,
       }],
-      { scalars: { Boolean: "boolean" } },
     ),
     trimIndent(`
     type Boolean = boolean;
@@ -378,7 +371,7 @@ Deno.test("exports > types", () => {
         }
         `,
       }],
-      { scalars: { ID: "string" }, exports: ["types"] },
+      { exports: ["types"] },
     ),
     trimIndent(`
     export type ID = string;
@@ -435,7 +428,7 @@ Deno.test("exports > operations", () => {
         }
         `,
       }],
-      { scalars: { ID: "string" }, exports: ["operations"] },
+      { exports: ["operations"] },
     ),
     trimIndent(`
     type ID = string;
@@ -468,6 +461,208 @@ Deno.test("exports > operations", () => {
 
     export const queries = {
       getUser: "getUser.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("enums > literals", () => {
+  assertEquals(
+    codegen(
+      `
+      enum Letter {
+        A
+        B
+        C
+      }
+
+      type Query {
+        letter: Letter
+      }
+      `,
+      [{
+        path: "getLetter.gql",
+        content: `
+        query getLetter {
+          letter
+        }
+        `,
+      }],
+      { enums: "literals" },
+    ),
+    trimIndent(`
+    type Letter = "A" | "B" | "C";
+
+    type getLetter = {
+      letter: Letter | null;
+    };
+
+    export type Query = {
+      getLetter: { data: getLetter; };
+    };
+
+    export const queries = {
+      getLetter: "getLetter.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("enums > none", () => {
+  assertEquals(
+    codegen(
+      `
+      enum Letter {
+        A
+        B
+        C
+      }
+
+      type Query {
+        letter: Letter
+      }
+      `,
+      [{
+        path: "getLetter.gql",
+        content: `
+        query getLetter {
+          letter
+        }
+        `,
+      }],
+      { enums: "none" },
+    ),
+    trimIndent(`
+    type getLetter = {
+      letter: Letter | null;
+    };
+
+    export type Query = {
+      getLetter: { data: getLetter; };
+    };
+
+    export const queries = {
+      getLetter: "getLetter.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("enums > import", () => {
+  assertEquals(
+    codegen(
+      `
+      enum Letter {
+        A
+        B
+        C
+      }
+
+      type Query {
+        letter: Letter
+      }
+      `,
+      [{
+        path: "getLetter.gql",
+        content: `
+        query getLetter {
+          letter
+        }
+        `,
+      }],
+      { enums: "import:foobar" },
+    ),
+    trimIndent(`
+    import { Letter } from "foobar";
+
+    type getLetter = {
+      letter: Letter | null;
+    };
+
+    export type Query = {
+      getLetter: { data: getLetter; };
+    };
+
+    export const queries = {
+      getLetter: "getLetter.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("schema", () => {
+  assertEquals(
+    codegen(
+      `
+      schema {
+        query: Root
+      }
+
+      type Root {
+        myQuery: Boolean!
+      }
+      `,
+      [{
+        path: "MyQuery.gql",
+        content: `
+        query MyQuery {
+          myQuery
+        }
+        `,
+      }],
+    ),
+    trimIndent(`
+    type Boolean = boolean;
+
+    type MyQuery = {
+      myQuery: Boolean;
+    };
+
+    export type Query = {
+      MyQuery: { data: MyQuery; };
+    };
+
+    export const queries = {
+      MyQuery: "MyQuery.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("typesFile", () => {
+  assertEquals(
+    codegen(
+      `
+      type Query {
+        myQuery: Boolean!
+      }
+      `,
+      [{
+        path: "MyQuery.gql",
+        content: `
+        query MyQuery {
+          myQuery
+        }
+        `,
+      }],
+      { typesFile: "some/file.ts" },
+    ),
+    trimIndent(`
+    import {
+      MyQueryQuery,
+    } from "some/file.ts";
+
+    export type Query = {
+      MyQuery: { data: MyQueryQuery; };
+    };
+
+    export const queries = {
+      MyQuery: "MyQuery.gql",
     };
 
     `),

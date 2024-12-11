@@ -9,14 +9,16 @@ const args = parseArgs(
   {
     args: process.argv.slice(2),
     options: {
-      schema: { type: "string" },
-      scalars: { type: "string" },
-      operations: { type: "string", multiple: true },
-      scalar: { type: "string", multiple: true },
-      outfile: { type: "string" },
-      enums: { type: "boolean" },
-      notypenames: { type: "boolean" },
+      banner: { type: "string" },
+      enums: { type: "string" },
       exports: { type: "string", multiple: true },
+      notypenames: { type: "boolean" },
+      operations: { type: "string", multiple: true },
+      outfile: { type: "string" },
+      scalar: { type: "string", multiple: true },
+      scalars: { type: "string" },
+      schema: { type: "string" },
+      typesFile: { type: "string" },
     },
   },
 ).values;
@@ -51,15 +53,7 @@ const operationDirs = args.operations?.map((v) => `${v}`) ?? ["."];
 
 const [schema, operations] = await loadFiles(schemaPath, operationDirs);
 
-const defaultScalars = {
-  Int: "number",
-  Float: "number",
-  String: "string",
-  Boolean: "boolean",
-  ID: "string",
-};
-
-const scalars: Record<string, string> = { ...defaultScalars };
+const scalars: Record<string, string> = {};
 if (args.scalars) {
   readFile;
   Object.assign(scalars, JSON.parse(await Deno.readTextFile(args.scalars)));
@@ -87,12 +81,30 @@ const exports = args.exports
   })
   : [];
 
+if (
+  typeof args.enums === "string" &&
+  (!["enums", "literals", "none"].includes(args.enums) &&
+    !args.enums.startsWith("import:"))
+) {
+  throw new Error(
+    `Invalid 'enums'. Must be one of 'enums', 'literals', 'import', 'none'`,
+  );
+}
+
+let banner = "";
+if (typeof args.banner === "string") {
+  if (await Deno.lstat(args.banner).catch(() => false)) {
+    banner = await Deno.readTextFile(args.banner);
+  } else banner = args.banner;
+}
+
 try {
-  const file = await formatCode(codegen(schema, operations, {
-    useEnums: args.enums ?? false,
+  const file = banner + await formatCode(codegen(schema, operations, {
+    enums: args.enums,
     includeTypenames: !args.notypenames,
     scalars,
     exports,
+    typesFile: args.typesFile,
   }));
 
   if (args.outfile) await Deno.writeTextFile(args.outfile, file);
