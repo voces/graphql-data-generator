@@ -18,7 +18,7 @@ import type {
   TypeNode,
   UnionTypeDefinitionNode,
 } from "npm:graphql";
-import { Kind, OperationTypeNode, parse, printSchema } from "npm:graphql";
+import { Kind, parse, printSchema } from "npm:graphql";
 import fg from "npm:fast-glob";
 import { join, relative } from "node:path";
 import { raise } from "./util.ts";
@@ -571,13 +571,13 @@ export const codegen = (
         {
           for (const operationType of definition.operationTypes) {
             switch (operationType.operation) {
-              case OperationTypeNode.QUERY:
+              case "query":
                 queryKey = operationType.type.name.value;
                 break;
-              case OperationTypeNode.MUTATION:
+              case "mutation":
                 mutationKey = operationType.type.name.value;
                 break;
-              case OperationTypeNode.SUBSCRIPTION:
+              case "subscription":
                 subscriptionKey = operationType.type.name.value;
                 break;
             }

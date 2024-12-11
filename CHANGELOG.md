@@ -1,3 +1,8 @@
+# 0.2.1
+
+- **[bugfix]** Switched to using literals instead of OperationTypeNode to
+  improve backwards compatibility.
+
 # 0.2.0
 
 - **[Breaking]** Renamed `useEnums` to `enums` in the CLI and code generation.
