@@ -922,11 +922,13 @@ ${usedTypes.map(([name]) => `  ${name}: ${rename(name)};`).join("\n")}
     usedReferences.some((r) => r.kind === Kind.ENUM_TYPE_DEFINITION)
   ) {
     serializedTypes.unshift(
-      `import { ${
+      `import {
+  ${
         usedReferences.filter((r) => r.kind === Kind.ENUM_TYPE_DEFINITION).map(
           (r) => r.name.value,
-        ).join(", ")
-      } } from "${enums.slice(7)}";`,
+        ).join(",\n  ")
+      },
+} from "${enums.slice(7)}";`,
     );
   }
 

@@ -1,4 +1,4 @@
-import { exec } from "node:child_process";
+import { spawn } from "node:child_process";
 
 export const raise = (error: Error | string) => {
   if (typeof error === "string") {
@@ -12,12 +12,32 @@ export const raise = (error: Error | string) => {
 export const formatCode = async (input: string): Promise<string> => {
   try {
     return await new Promise<string>((resolve, reject) => {
-      const process = exec("deno fmt -", (error, stdout, stderr) => {
-        if (error) return reject(error);
-        if (stderr) return reject(new Error(stderr));
-        resolve(stdout);
+      const process = spawn("deno", ["fmt", "-"], {
+        stdio: ["pipe", "pipe", "pipe"],
       });
-      process.stdin?.write(input);
+
+      let output = "";
+      let errorOutput = "";
+
+      process.stdout.on("data", (data) => {
+        output += data.toString();
+      });
+
+      process.stderr.on("data", (data) => {
+        errorOutput += data.toString();
+      });
+
+      process.on("close", (code) => {
+        if (code !== 0 || errorOutput) {
+          reject(new Error(errorOutput || `Process exited with code ${code}`));
+        } else resolve(output);
+      });
+
+      process.on("error", (error) => {
+        reject(error);
+      });
+
+      process.stdin.write(input);
       process.stdin?.end();
     });
   } catch {

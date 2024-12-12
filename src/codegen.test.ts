@@ -576,7 +576,9 @@ Deno.test("enums > import", () => {
       { enums: "import:foobar" },
     ),
     trimIndent(`
-    import { Letter } from "foobar";
+    import {
+      Letter,
+    } from "foobar";
 
     type getLetter = {
       letter: Letter | null;

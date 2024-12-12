@@ -38,7 +38,7 @@ await build({
     main: "./esm/index.js",
     repository: {
       type: "git",
-      url: "git+https://github.com/vocesgraphql-data-generator/.git",
+      url: "git+https://github.com/voces/graphql-data-generator.git",
     },
     bugs: {
       url: "https://github.com/voces/graphql-data-generator/issues",

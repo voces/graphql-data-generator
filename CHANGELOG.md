@@ -1,3 +1,10 @@
+# 0.2.4
+
+- **[feat]** `formatCode` is run on code generated from the plugin.
+- **[feat]** Imported enums are split to many lines by default.
+- **[bugfix]** Changed `formatCode` to not crash if `deno` is missing in MacOS.
+- **[bugfix]** Fixed `repository.url` in npm `package.json`.
+
 # 0.2.3
 
 - **[bugfix]** Duplicate operations are skipped.
