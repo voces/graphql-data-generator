@@ -528,7 +528,9 @@ export const codegen = (
     namingConvention?: NamingConvention;
   } = {},
 ): string => {
-  const rename = convertFactory({ namingConvention });
+  const rename = typesFile
+    ? convertFactory({ namingConvention })
+    : <T>(v: T) => v;
 
   const schemaDoc = parse(
     typeof schema === "string" ? schema : printSchema(schema),
@@ -660,6 +662,10 @@ export const codegen = (
           const name = definition.name?.value;
           if (!name) {
             console.warn(`Skipping unnamed operation in '${path}'`);
+            continue;
+          }
+          if (operations[definition.operation].some((o) => o.name === name)) {
+            console.warn(`Skipping duplicate operation '${name}'`);
             continue;
           }
           operations[definition.operation].push({
@@ -826,7 +832,7 @@ ${
         };`;
       }).filter(filterOutputTypes),
       `export type Inputs = {
-${Array.from(handledInputs).map((i) => `  ${i}: ${i};`).join("\n")}
+${Array.from(handledInputs).map((i) => `  ${i}: ${rename(i)};`).join("\n")}
 };`,
       `export const inputs = [${
         Array.from(handledInputs).map((i) => `"${i}"`).join(", ")

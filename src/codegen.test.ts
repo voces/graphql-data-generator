@@ -668,3 +668,66 @@ Deno.test("typesFile", () => {
     `),
   );
 });
+
+Deno.test("typesFile > namingConvention", () => {
+  assertEquals(
+    codegen(
+      `
+      type WeirdCAPSOutput {
+        weirdCAPSOutputField: ID!
+      }
+
+      input WeirdCAPSInput {
+        weirdCAPSInputField: ID!
+      }
+
+      type Query {
+        weirdCAPS(weirdCAPSArgument: WeirdCAPSInput): WeirdCAPSOutput
+      }
+      `,
+      [{
+        path: "MyQuery.gql",
+        content: `
+        query weirdCAPS($weirdCAPSVariable: WeirdCAPSInput) {
+          weirdCAPS(weirdCAPSArgument: $weirdCAPSVariable) {
+            weirdCAPSOutputField
+          }
+        }
+        `,
+      }],
+      {
+        typesFile: "some/file.ts",
+        namingConvention: "change-case-all#pascalCase",
+      },
+    ),
+    trimIndent(`
+    import {
+      WeirdCapsInput,
+      WeirdCapsOutput,
+      WeirdCapsQuery,
+      WeirdCapsQueryVariables,
+    } from "some/file.ts";
+    
+    export type Types = {
+      WeirdCAPSOutput: WeirdCapsOutput;
+    };
+    
+    export const types = ["WeirdCAPSOutput"] as const;
+    
+    export type Inputs = {
+      WeirdCAPSInput: WeirdCapsInput;
+    };
+    
+    export const inputs = ["WeirdCAPSInput"] as const;
+    
+    export type Query = {
+      weirdCAPS: { data: WeirdCapsQuery; variables: WeirdCapsQueryVariables; };
+    };
+    
+    export const queries = {
+      weirdCAPS: "MyQuery.gql",
+    };
+
+    `),
+  );
+});

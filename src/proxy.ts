@@ -105,7 +105,7 @@ const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
         type = argument.type;
       }
 
-      while (parts[i + 2]?.match(/^\d$/)) {
+      while (parts[i + 2]?.match(/^\d+$/)) {
         if (type.kind === Kind.NON_NULL_TYPE) type = type.type;
         if (type.kind !== Kind.LIST_TYPE) throw new Error("Expected list type");
         type = type.type;

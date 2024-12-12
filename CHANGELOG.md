@@ -1,3 +1,10 @@
+# 0.2.3
+
+- **[bugfix]** Duplicate operations are skipped.
+- **[bugfix]** Fixed array indexes greater than 9.
+- **[bugfix]** `namingConvention` is now applied to inputs and is only applied
+  when `typesFile` is set.
+
 # 0.2.2
 
 - **[feat]** Added `namingConvention` to CLI, `codegen`, and plugin.
