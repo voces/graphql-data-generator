@@ -34,6 +34,7 @@ export type OperationMock<
   request: { query: DocumentNode; variables?: Variables };
   result: { data?: Data; errors?: GraphQLError[] };
   error?: Error;
+  stack?: string;
 };
 
 export type SimpleOperationMock<

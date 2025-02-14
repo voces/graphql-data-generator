@@ -98,7 +98,7 @@ export const init = <
       | null;
   },
   options?: {
-    finalizeOperation: <T extends OperationMock & Partial<Extra>>(
+    finalizeOperation?: <T extends OperationMock & Partial<Extra>>(
       operation: T,
     ) => T;
   },
@@ -227,23 +227,83 @@ export const init = <
   >[number];
 
   const addOperationTransforms = (operation: string, obj: unknown) => {
-    Object.defineProperty(obj, "patch", {
-      value: (...patches: OperationPatch[]) => {
-        const prev = typeof obj === "function" ? obj() : obj;
-        const builder = build[operation]! as (
-          ...patches: OperationPatch[]
-        ) => OperationMock;
-        const { result, request, error, ...rest } = prev;
-        return builder(
-          {
-            data: result.data,
-            variables: request.variables,
-            error: error,
-            errors: result.errors,
-            ...rest,
-          },
-          ...patches,
-        );
+    Object.defineProperties(obj, {
+      patch: {
+        value: (...patches: OperationPatch[]) => {
+          const prev = typeof obj === "function" ? obj() : obj;
+          const builder = build[operation]! as (
+            ...patches: OperationPatch[]
+          ) => OperationMock;
+          const { result, request, error, ...rest } = prev;
+          return builder(
+            {
+              data: result.data,
+              variables: request.variables,
+              error: error,
+              errors: result.errors,
+              ...rest,
+            },
+            ...patches,
+          );
+        },
+      },
+      variables: {
+        value: (variables: Patch<unknown>) => {
+          const prev = typeof obj === "function" ? obj() : obj;
+          const builder = build[operation]! as (
+            ...patches: OperationPatch[]
+          ) => OperationMock;
+          const { result, request, error, ...rest } = prev;
+          const mock = builder(
+            {
+              data: result.data,
+              variables: request.variables,
+              error: error,
+              errors: result.errors,
+              ...rest,
+            },
+            {
+              variables: typeof variables === "function"
+                ? variables(result.data, request.variables)
+                : variables,
+            },
+          );
+          Error.captureStackTrace(
+            mock,
+            (obj as { variables: Function }).variables,
+          );
+          mock.stack = mock.stack?.slice(6);
+          return mock;
+        },
+      },
+      data: {
+        value: (data: Patch<unknown>) => {
+          const prev = typeof obj === "function" ? obj() : obj;
+          const builder = build[operation]! as (
+            ...patches: OperationPatch[]
+          ) => OperationMock;
+          const { result, request, error, ...rest } = prev;
+          const mock = builder(
+            {
+              data: result.data,
+              variables: request.variables,
+              error: error,
+              errors: result.errors,
+              ...rest,
+            },
+            {
+              data: typeof data === "function"
+                ? data(request.variables, result.data)
+                : data,
+            },
+          );
+          Error.captureStackTrace(
+            mock,
+            (obj as { data: Function }).data,
+          );
+          mock.stack = mock.stack?.slice(6);
+          return mock;
+        },
       },
     });
     Object.defineProperties(
@@ -270,10 +330,16 @@ export const init = <
             const builder = build[operation]! as (
               ...patches: OperationPatch[]
             ) => OperationMock;
-            return builder(
+            const mock = builder(
               prevInput,
               patch as GenericObjectPatch,
             );
+            Error.captureStackTrace(
+              mock,
+              (obj as Record<string, Function>)[name],
+            );
+            mock.stack = mock.stack?.slice(6);
+            return mock;
           },
         }]),
       ),
@@ -281,8 +347,8 @@ export const init = <
     return obj;
   };
 
-  const operationBuilder = (name: string, path: string) =>
-    addOperationTransforms(name, (...patches: OperationPatch[]) => {
+  const operationBuilder = (name: string, path: string) => {
+    const builder = (...patches: OperationPatch[]) => {
       const query = getOperationContent(path, name);
       if (transforms[name] && "default" in transforms[name]) {
         patches = [transforms[name].default as OperationPatch, ...patches];
@@ -293,18 +359,22 @@ export const init = <
         query,
         ...patches,
       );
-      const result = toObject({
+      const mock = toObject({
         request: { ...request },
         ...raw,
       }) as ReturnType<typeof operation>;
-      result.request.query = parsedQuery;
+      mock.request.query = parsedQuery;
+      Error.captureStackTrace(mock, builder);
+      mock.stack = mock.stack?.slice(6);
       return addOperationTransforms(
         name,
         options?.finalizeOperation
-          ? options.finalizeOperation(result as OperationMock & Partial<Extra>)
-          : result,
+          ? options.finalizeOperation(mock as OperationMock & Partial<Extra>)
+          : mock,
       );
-    }) as FullBuild[keyof FullBuild];
+    };
+    return addOperationTransforms(name, builder) as FullBuild[keyof FullBuild];
+  };
 
   {
     const nonQueryNames: string[] = [

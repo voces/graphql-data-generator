@@ -1,3 +1,11 @@
+# 0.3.0
+
+- **[Breaking]** Added `patch` to `OperationMock` and automatically set it on
+  all operations.
+- **[feat]** Added `MockProvider` to improve missing mock errors and assert on
+  unused mocks.
+- **[bugfix]** Implemented `variables` and `data` automatic patches.
+
 # 0.2.4
 
 - **[feat]** `formatCode` is run on code generated from the plugin.

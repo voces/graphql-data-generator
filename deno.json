@@ -1,11 +1,17 @@
 {
-  "version": "0.2.4",
+  "version": "0.3.0-alpha.0",
   "tasks": {
     "test": "deno test -A --watch",
     "build": "deno task build:npm && deno task build:examples",
+    "build:npm:local": "deno task build:npm && deno task build:npm:clean",
     "build:npm": "deno run -A script/build.ts",
     "build:examples": "deno task build:examples:board && deno task build:examples:shopping-cart",
     "build:examples:board": "deno run -A src/cli.ts --schema examples/board/schema.graphql --operations examples/board --scalar DateTime:string --scalar URL:string --outfile examples/board/types.ts",
-    "build:examples:shopping-cart": "deno run -A src/cli.ts --schema examples/shoppingCart/schema.graphql --operations examples/shoppingCart --outfile examples/shoppingCart/types.ts"
+    "build:examples:shopping-cart": "deno run -A src/cli.ts --schema examples/shoppingCart/schema.graphql --operations examples/shoppingCart --outfile examples/shoppingCart/types.ts",
+    "build:npm:clean": "rm -rf npm/node_modules"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "npm:react"
   }
 }

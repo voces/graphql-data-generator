@@ -321,6 +321,51 @@ Deno.test("query > patch transform on builder", async () => {
   );
 });
 
+Deno.test("query > variable transform", () => {
+  assertEquals(
+    build.queryWithVariables.variables({ nonnullableScalar: "passed" })
+      .request.variables?.nonnullableScalar,
+    "passed",
+  );
+});
+
+Deno.test("query > variable chained", () => {
+  assertEquals(
+    build.queryWithVariables({ data: { queryWithVariables: true } })
+      .variables({ nonnullableScalar: "passed" })
+      .variables((d, v) => ({
+        nonnullableScalar: `${v.nonnullableScalar}2 ${d.queryWithVariables}`,
+      }))
+      .variables({ nonnullableScalar: (v) => `${v.nonnullableScalar}3` })
+      .request.variables?.nonnullableScalar,
+    "passed2 true3",
+  );
+});
+
+Deno.test("query > data transform", () => {
+  assertEquals(
+    build.queryWithVariables.data({ queryWithVariables: true })
+      .result.data?.queryWithVariables,
+    true,
+  );
+});
+
+Deno.test("query > data chained", () => {
+  const q1 = build.queryWithVariables({
+    variables: { nonnullableScalar: "passed" },
+  });
+  const q2 = q1.data({ queryWithVariables: true });
+  const q3 = q2.data((_, d) => ({ queryWithVariables: !d.queryWithVariables }));
+  const q4 = q3.data({ queryWithVariables: (d) => !d.queryWithVariables });
+  const q5 = q1.data((v) => ({
+    queryWithVariables: v.nonnullableScalar === "passed",
+  }));
+  assertEquals(
+    [q1, q2, q3, q4, q5].map((q) => q.result.data?.queryWithVariables),
+    [null, true, false, true, true],
+  );
+});
+
 Deno.test("query > custom transform on object", () => {
   const o1 = build.queryWithVariables();
   const o2 = o1.flip();
