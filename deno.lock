@@ -1645,8 +1645,12 @@
       "integrity": "sha512-PQ2PC7R9rslx84ndNBZB/Dkv8V8fZEpk83RLgXtYd0fwUgEjseMn1Dgajh2x6S8QbZAFa9p2qVCEuYZNgve0dQ=="
     }
   },
+  "redirects": {
+    "https://esm.sh/@types/jest/index.d.ts": "https://esm.sh/@types/jest@29.5.14/index.d.ts"
+  },
   "workspace": {
     "dependencies": [
+      "npm:@apollo/client@*",
       "npm:react@*"
     ]
   }

@@ -1,5 +1,11 @@
 {
   "deno.enable": true,
   "editor.tabSize": 2,
-  "editor.detectIndentation": false
+  "editor.detectIndentation": false,
+  "cSpell.words": [
+    "codegen",
+    "notypenames",
+    "refetches",
+    "unaliased"
+  ]
 }

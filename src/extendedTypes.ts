@@ -11,7 +11,7 @@ type DefaultObjectTransformSwitch<T, U> = T extends (infer G)[]
   ? DefaultObjectTransformSwitch<G, U>[]
   : DefaultObjectTransform<T, U>;
 type DefaultObjectTransform<T, U = T> = {
-  [K in keyof T]?: T[K] extends object ?
+  [K in keyof T]?: T[K] extends object | null | undefined ?
       | DefaultObjectTransformSwitch<T[K], U>
       | ((host: U) => DefaultObjectTransformSwitch<T[K], U>)
     : T[K] | ((host: U) => T[K]);

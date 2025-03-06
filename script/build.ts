@@ -20,6 +20,18 @@ const markPeerDependency = (
   pkg.peerDependencies[dependency] = prev;
 };
 
+const optionalPeerDependencies = [
+  "react",
+  "@types/react",
+  "@apollo/client",
+  "@testing-library/dom",
+];
+const peerDependencies = [
+  "graphql",
+  "@graphql-tools/graphql-tag-pluck",
+  ...optionalPeerDependencies,
+];
+
 await build({
   entryPoints: ["./src/index.ts", {
     kind: "bin",
@@ -38,33 +50,25 @@ await build({
   shims: {
     deno: true,
   },
-  scriptModule: false,
+  // scriptModule: false,
   skipSourceOutput: true,
   test: false,
   declaration: "separate",
-  mappings: {
-    "npm:graphql": {
-      name: "graphql",
-      peerDependency: true,
-    },
-    "npm:@graphql-tools/graphql-tag-pluck": {
-      name: "@graphql-tools/graphql-tag-pluck",
-      peerDependency: true,
-    },
-    "npm:react": {
-      name: "react",
-      peerDependency: true,
-    },
-    "npm:@apollo/client": {
-      name: "@apollo/client",
-      peerDependency: true,
-    },
-  },
+  mappings: Object.fromEntries(
+    optionalPeerDependencies.map(
+      (dep) => [`npm:${dep}`, { name: dep, markPeerDependency: true }],
+    ),
+  ),
   package: {
     name: "graphql-data-generator",
     version: config.version,
     license: "MIT",
-    main: "./esm/index.js",
+    typesVersions: {
+      "*": {
+        "script/jest": ["types/jest.d.ts"],
+        "script/plugin": ["types/plugin.d.ts"],
+      },
+    },
     repository: {
       type: "git",
       url: "git+https://github.com/voces/graphql-data-generator.git",
@@ -79,22 +83,12 @@ await build({
 
     if (!pkg.peerDependencies) pkg.peerDependencies = {};
 
-    for (
-      const dep of [
-        "graphql",
-        "@graphql-tools/graphql-tag-pluck",
-        "react",
-        "@types/react",
-        "@apollo/client",
-      ]
-    ) {
-      markPeerDependency(pkg, dep);
-    }
+    for (const dep of peerDependencies) markPeerDependency(pkg, dep);
 
     if (!pkg.peerDependenciesMeta) pkg.peerDependenciesMeta = {};
-    pkg.peerDependenciesMeta.react = { optional: true };
-    pkg.peerDependenciesMeta["@types/react"] = { optional: true };
-    pkg.peerDependenciesMeta["@apollo/client"] = { optional: true };
+    for (const dep of optionalPeerDependencies) {
+      pkg.peerDependenciesMeta[dep] = { optional: true };
+    }
 
     for (const key in pkg.exports) {
       pkg.exports[key] = {

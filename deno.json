@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0-alpha.0",
+  "version": "0.3.0-alpha.22",
   "tasks": {
     "test": "deno test -A --watch",
     "build": "deno task build:npm && deno task build:examples",
@@ -13,5 +13,9 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "npm:react"
+  },
+  "imports": {
+    "npm:@apollo/client/link/error": "npm:@apollo/client/link/error/index.js",
+    "npm:@apollo/client/testing": "npm:@apollo/client/testing/index.js"
   }
 }

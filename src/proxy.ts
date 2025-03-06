@@ -13,7 +13,7 @@ import type {
   TypeNode,
   UnionTypeDefinitionNode,
 } from "npm:graphql";
-import { Kind, Location, parse } from "npm:graphql";
+import { Kind, parse } from "npm:graphql";
 import type {
   CovariantEmpty,
   OperationMock,
@@ -22,8 +22,18 @@ import type {
 } from "./types.ts";
 import { absurd } from "./util.ts";
 
+/**
+ * Updates the value to the base value, bypassing default transformations.
+ * Useful to clear optional inputs, resulting in `undefined` rather than `null`.
+ */
+export const clear = Symbol("clear") as unknown as undefined;
+
 type NamedDefinitionNode = DefinitionNode & { name: NameNode };
 
+/**
+ * Called to insert default patches at the front of nested objects (props &
+ * arrays). `build` will insert default patches for top-level objects.
+ */
 let getDefaultPatch = <T>(
   __typename: string,
 ): Patch<T> | ((prev: T) => Patch<T> | undefined) | undefined => undefined;
@@ -145,10 +155,10 @@ const resolveConcreteType = <T>(
   patch?: Patch<T>,
   prev?: T,
 ) => {
-  const objectDefintions = definitions.filter((
+  const objectDefinitions = definitions.filter((
     d,
   ): d is ObjectTypeDefinitionNode => d.kind === Kind.OBJECT_TYPE_DEFINITION);
-  const interfaceDefintions = definitions.filter((
+  const interfaceDefinitions = definitions.filter((
     d,
   ): d is InterfaceTypeDefinitionNode =>
     d.kind === Kind.INTERFACE_TYPE_DEFINITION
@@ -158,19 +168,19 @@ const resolveConcreteType = <T>(
   const interfaces = [definition];
   while (interfaces.length) {
     const interfaceDefinition = interfaces.pop()!;
-    for (const objectDefintion of objectDefintions) {
+    for (const objectDefinition of objectDefinitions) {
       if (
-        objectDefintion.interfaces?.some((i) =>
+        objectDefinition.interfaces?.some((i) =>
           i.name.value === interfaceDefinition.name.value
         ) ||
         ("types" in interfaceDefinition &&
           interfaceDefinition.types?.some((t) =>
-            t.name.value === objectDefintion.name.value
+            t.name.value === objectDefinition.name.value
           ))
-      ) options.push(objectDefintion);
+      ) options.push(objectDefinition);
     }
     // TODO: is this a thing...?
-    for (const secondOrderInterfaceDefinition of interfaceDefintions) {
+    for (const secondOrderInterfaceDefinition of interfaceDefinitions) {
       if (
         secondOrderInterfaceDefinition.interfaces?.some((i) =>
           i.name.value === interfaceDefinition.name.value
@@ -210,11 +220,13 @@ const resolveValue = <T>(
   type: TypeNode,
   ctx: {
     hostType: string;
+    path?: string;
     prop: string;
+    input: boolean;
     selectionSet?: SelectionSetNode;
   },
 ) => {
-  if (type.kind !== Kind.NON_NULL_TYPE) return null;
+  if (type.kind !== Kind.NON_NULL_TYPE) return ctx.input ? undefined : null;
   if (type.type.kind === Kind.LIST_TYPE) return [];
 
   type = type.type;
@@ -252,48 +264,18 @@ const resolveValue = <T>(
       fieldTypeDefinitions[0].kind === Kind.INTERFACE_TYPE_DEFINITION ||
       fieldTypeDefinitions[0].kind === Kind.INPUT_OBJECT_TYPE_DEFINITION)
   ) {
-    // const childPatches = ctx.patches.map((p) => p[ctx.prop as keyof typeof p])
-    //   .filter((v) => !!v && typeof v === "object") as Patch<T[keyof T]>[];
-    const base = _proxy<T[keyof T]>(
+    return _proxy<T[keyof T]>(
       definitions,
       scalars,
-      fieldTypeDefinitions[0].name.value,
+      ctx.path ? `${ctx.path}.${ctx.prop}` : fieldTypeDefinitions[0].name.value,
       [],
-      { selectionSet: ctx.selectionSet },
+      { selectionSet: ctx.selectionSet, nonNull: true },
     );
-    const rawDefaultPatch = getDefaultPatch(type.name.value);
-    const defaultPatch = typeof rawDefaultPatch === "function"
-      ? rawDefaultPatch(base)
-      : rawDefaultPatch;
-    if (defaultPatch) {
-      return _proxy<T[keyof T]>(
-        definitions,
-        scalars,
-        fieldTypeDefinitions[0].name.value,
-        [base, defaultPatch],
-      );
-    }
-    return base;
   }
 
   throw new Error(
     `Unhandled default kind ${fieldTypeDefinitions.map((d) => d.kind)}`,
   );
-};
-
-const gqlprint = <T>(value: T): Partial<T> => {
-  if (typeof value !== "object" || !value) return value;
-  // deno-lint-ignore no-explicit-any
-  if (Array.isArray(value)) return value.map(gqlprint) as any;
-  const obj: Partial<T> = {};
-  for (const field in value) {
-    if (field === "loc" && value[field as keyof T] instanceof Location) {
-      continue;
-    }
-    // deno-lint-ignore no-explicit-any
-    obj[field as keyof T] = gqlprint(value[field]) as any;
-  }
-  return obj;
 };
 
 const getSelectionField = (
@@ -427,40 +409,69 @@ const _proxy = <T>(
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   path: string,
-  patches: readonly (Patch<T> | ((prev: T) => Patch<T>))[],
+  patches: readonly (Patch<T> | ((prev: T) => Patch<T> | undefined))[],
   {
     prev,
     resolvedType = resolveType(definitions, path),
     selectionSet,
+    nonNull,
   }: {
     prev?: T;
     /** Used to handle lists */
     resolvedType?: ReturnType<typeof resolveType>;
     selectionSet?: SelectionSetNode;
+    nonNull?: boolean;
   } = {},
 ): T => {
   const { parent = path, definition } = resolvedType;
   let type = resolvedType.type;
 
-  if (!prev && patches.length) {
-    prev = _proxy(definitions, scalars, path, patches.slice(0, -1), {
-      selectionSet,
-    });
+  if (!prev) {
+    if (nonNull) {
+      const typeName = type.kind === Kind.NAMED_TYPE
+        ? type.name.value
+        : type.kind === Kind.NON_NULL_TYPE && type.type.kind === Kind.NAMED_TYPE
+        ? type.type.name.value
+        : undefined;
+      if (typeName) {
+        const rawDefaultPatch = getDefaultPatch<T>(typeName);
+        if (rawDefaultPatch) patches = [rawDefaultPatch, ...patches];
+      }
+    }
+
+    if (patches.length) {
+      prev = _proxy(definitions, scalars, path, patches.slice(0, -1), {
+        selectionSet,
+      });
+    }
   }
 
   const rawPatch = patches.length > 0 ? patches[patches.length - 1] : undefined;
   const patch = typeof rawPatch === "function"
     ? prev ? rawPatch(prev) : undefined
     : rawPatch;
+  if (patch === clear) {
+    return _proxy(definitions, scalars, path, [], { selectionSet });
+  }
 
   if (type.kind !== Kind.NON_NULL_TYPE) {
-    if (!patches.length) return (prev ?? null) as T;
+    if (!patches.length && !nonNull) {
+      return (prev ??
+        (resolveType(definitions, path.split(".").slice(0, -1).join("."))
+            .definition?.kind ===
+            Kind.INPUT_OBJECT_TYPE_DEFINITION
+          ? undefined
+          : null)) as T;
+    }
   } else type = type.type;
 
   if (type.kind === Kind.LIST_TYPE) {
     if (!patches.length) return (prev ?? []) as T;
 
     const value = (patches.at(-1) ?? []) as Array<unknown>;
+    if (value === clear) {
+      return _proxy(definitions, scalars, path, [], { selectionSet });
+    }
     const previousArray = (prev ?? []) as Array<unknown>;
 
     const lastIndex = Math.max(previousArray.length - 1, 0);
@@ -478,11 +489,19 @@ const _proxy = <T>(
     );
     const arr = [] as T[keyof T] & unknown[];
     for (let i = 0; i < length; i++) {
+      const nestType = type.type.kind === Kind.NAMED_TYPE
+        ? type.type.name.value
+        : type.type.kind === Kind.NON_NULL_TYPE &&
+            type.type.type.kind === Kind.NAMED_TYPE
+        ? type.type.type.name.value
+        : undefined;
       arr[i] = _proxy(
         definitions,
         scalars,
         `${path}.${i}`,
         [
+          // TODO: should be handled in _proxy
+          nestType && !previousArray[i] ? getDefaultPatch(nestType) : undefined,
           value[i],
           i === lastIndex ? (value as { last?: number }).last : undefined,
           i === nextIndex ? (value as { next?: number }).next : undefined,
@@ -531,6 +550,16 @@ const _proxy = <T>(
             ? rawValue(prev)
             : rawValue;
 
+          if (value === clear) {
+            return target[prop as keyof T] = _proxy(
+              definitions,
+              scalars,
+              `${path}.${prop}`,
+              [],
+              { selectionSet },
+            );
+          }
+
           if (value && typeof value === "object") {
             const nonNullFieldType = field.type.kind === Kind.NON_NULL_TYPE
               ? field.type.type
@@ -565,6 +594,7 @@ const _proxy = <T>(
                 selectionSet: selectionSet
                   ? getSelectionSetSelection(definitions, selectionSet, prop)
                   : undefined,
+                nonNull: true,
               },
             );
           }
@@ -589,10 +619,12 @@ const _proxy = <T>(
           field.type,
           {
             hostType: definition.name.value,
+            path,
             prop,
             selectionSet: selectionSet
               ? getSelectionSetSelection(definitions, selectionSet, prop)
               : undefined,
+            input: definition.kind === Kind.INPUT_OBJECT_TYPE_DEFINITION,
           },
         ) as T[keyof T];
       };
@@ -728,7 +760,7 @@ const _proxy = <T>(
           definitions,
           scalars,
           variableDefinition.type,
-          { hostType: `${path}Variables`, prop: name },
+          { hostType: `${path}Variables`, prop: name, input: false },
         );
         if (result != null) {
           if (!mock.variables) mock.variables = {};
@@ -751,6 +783,17 @@ const _proxy = <T>(
             // Query, Mutation, Subscription
             const operationKey = definition.operation[0].toUpperCase() +
               definition.operation.slice(1);
+
+            if (value === clear) {
+              mock.data[prop] = _proxy(
+                definitions,
+                scalars,
+                `${operationKey}.${selection.name.value}`,
+                [],
+                { selectionSet: selection.selectionSet },
+              );
+              continue;
+            }
 
             mock.data[prop] = _proxy(
               definitions,
@@ -807,6 +850,13 @@ const _proxy = <T>(
       const scalar = scalars[definition.name.value];
       const value = typeof scalar === "function" ? scalar(parent) : scalar;
       return value;
+    }
+    case Kind.ENUM_TYPE_DEFINITION: {
+      const patch = patches[patches.length - 1];
+      if (patch != null) return patch as T;
+      if (prev != null) return prev;
+
+      return definition.values?.[0]?.name.value as T;
     }
     default:
       throw new Error(`Unhandled definition kind '${definition.kind}'`);

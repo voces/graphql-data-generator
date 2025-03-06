@@ -1,8 +1,13 @@
 import "./jest.polyfill.test.ts";
 
 import { useEffect } from "npm:react";
-import { MockProvider } from "./jest.tsx";
-import { gql, useApolloClient, useQuery } from "npm:@apollo/client";
+import { MockedProvider } from "./jest.tsx";
+import {
+  gql,
+  useApolloClient,
+  useMutation,
+  useQuery,
+} from "npm:@apollo/client";
 import { render } from "npm:@testing-library/react";
 import { GlobalRegistrator } from "npm:@happy-dom/global-registrator";
 import {
@@ -53,35 +58,49 @@ const build = init<
   subscriptions,
   types,
   inputs,
-  { ID: idScalar },
+  { ID: idScalar, String: "", DateTime: "2025-02-16T23:42:22.612Z" },
 )(() => ({}));
 
 const GET_USERS = gql(await Deno.readTextFile("examples/board/GetUsers.gql"));
 const GET_USER_POSTS = gql(
   await Deno.readTextFile("examples/board/GetUserPosts.gql"),
 );
+const CREATE_POST = gql(
+  await Deno.readTextFile("examples/board/CreatePost.gql"),
+);
 
-it("foo", () => {
+it("MockProvider smoke", () => {
   const Component = () => {
     useQuery(GET_USERS);
     useQuery(GET_USER_POSTS, { variables: { id: "user-1" } });
+    const [createPost] = useMutation<
+      Mutation["CreatePost"]["data"],
+      Mutation["CreatePost"]["variables"]
+    >(CREATE_POST, {
+      refetchQueries: ["GetUsers"],
+    });
     const client = useApolloClient();
     useEffect(() => {
       client.query({ query: GET_USER_POSTS, variables: { id: "user-2" } });
+      createPost({
+        variables: { input: { authorId: "user-1", title: "", content: "" } },
+      });
     }, []);
     return null;
   };
   const getUserPosts = build.GetUserPosts({ variables: { id: "user-1" } });
   render(
-    <MockProvider
+    <MockedProvider
       mocks={[
         build.GetUsers(),
         getUserPosts,
         getUserPosts.variables({ id: "user-2" }),
+        build.CreatePost({ variables: { input: { authorId: "user-1" } } }),
+        build.GetUsers(),
       ]}
-      stack={new Error().stack?.slice(6)}
+      stack={new Error().stack}
     >
       <Component />
-    </MockProvider>,
+    </MockedProvider>,
   );
 });

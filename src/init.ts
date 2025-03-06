@@ -1,6 +1,6 @@
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { type DocumentNode, Kind, parse } from "npm:graphql";
-import { dirname, join } from "node:path";
 import { gqlPluckFromCodeStringSync } from "npm:@graphql-tools/graphql-tag-pluck";
 
 import type {
@@ -18,13 +18,31 @@ import type {
 } from "./types.ts";
 import { operation, proxy, withGetDefaultPatch } from "./proxy.ts";
 import { toObject } from "./util.ts";
+import { dirname, resolve } from "node:path";
 
+type UnknownFunction = (...args: unknown[]) => unknown;
+
+globalThis.require ??= createRequire(Deno.cwd());
 const files: Record<string, string> = {};
-const loadFile = (path: string): string =>
-  files[path] || (files[path] = readFileSync(path, "utf-8").replace(
-    /#import "(.*)"/,
-    (_, fragmentPath) => loadFile(join(dirname(path), fragmentPath)),
-  ));
+const loadFile = (path: string): string => {
+  if (files[path]) return files[path];
+  const raw = files[path] = readFileSync(path, "utf-8");
+  const imports = Array.from(
+    raw.matchAll(/#import "(.*)"/gm),
+    ([, importPath]) =>
+      loadFile(
+        require.resolve(
+          importPath.startsWith(".")
+            ? resolve(Deno.cwd(), dirname(path), importPath)
+            : importPath,
+          { paths: [Deno.cwd()] },
+        ),
+      ),
+  );
+  if (!imports.length) return raw;
+
+  return [raw, ...imports].join("\n\n");
+};
 
 const getOperationContentMap: Record<
   string,
@@ -42,10 +60,7 @@ const getOperationContent = (
     ];
   }
 
-  const fileContent = readFileSync(path, "utf-8").replace(
-    /#import "(.*)"/,
-    (_, fragmentPath) => loadFile(join(dirname(path), fragmentPath)),
-  );
+  const fileContent = loadFile(path);
 
   try {
     const sources = gqlPluckFromCodeStringSync(path, fileContent);
@@ -54,7 +69,7 @@ const getOperationContent = (
       const firstOp = document.definitions.find((d) =>
         d.kind === Kind.OPERATION_DEFINITION
       );
-      if (!firstOp) throw new Error(`Cound not find an operation in ${path}`);
+      if (!firstOp) throw new Error(`Could not find an operation in ${path}`);
 
       return [firstOp.name?.value, document];
     }));
@@ -65,7 +80,16 @@ const getOperationContent = (
   return getOperationContent(path, operationName);
 };
 
-// - Types will be suffixed with their type: fooQuery or fooMutation
+/**
+ * Initialize the data builder.
+ * @param schema The plain text of your schema.
+ * @param queries List of queries exported from generated types.
+ * @param mutations List of mutations exported from generated types.
+ * @param subscriptions List of subscriptions exported from generated types.
+ * @param types List of types exported from generated types.
+ * @param inputs List of types exported from generated types.
+ * @param scalars A mapping to generate scalar values. Function values will be invoked with their `__typename`.
+ */
 export const init = <
   Query extends Record<
     string,
@@ -270,9 +294,8 @@ export const init = <
           );
           Error.captureStackTrace(
             mock,
-            (obj as { variables: Function }).variables,
+            (obj as { variables: UnknownFunction }).variables,
           );
-          mock.stack = mock.stack?.slice(6);
           return mock;
         },
       },
@@ -299,9 +322,8 @@ export const init = <
           );
           Error.captureStackTrace(
             mock,
-            (obj as { data: Function }).data,
+            (obj as { data: UnknownFunction }).data,
           );
-          mock.stack = mock.stack?.slice(6);
           return mock;
         },
       },
@@ -336,9 +358,8 @@ export const init = <
             );
             Error.captureStackTrace(
               mock,
-              (obj as Record<string, Function>)[name],
+              (obj as Record<string, UnknownFunction>)[name],
             );
-            mock.stack = mock.stack?.slice(6);
             return mock;
           },
         }]),
@@ -353,19 +374,20 @@ export const init = <
       if (transforms[name] && "default" in transforms[name]) {
         patches = [transforms[name].default as OperationPatch, ...patches];
       }
-      const { request: { query: parsedQuery, ...request }, ...raw } = operation(
-        doc.definitions,
-        scalars,
-        query,
-        ...patches,
+      const { mock, parsedQuery } = withGetDefaultPatch(
+        <U>(type: string) => transforms[type]?.default as Patch<U>,
+        () => {
+          const { request: { query: parsedQuery, ...request }, ...raw } =
+            operation(doc.definitions, scalars, query, ...patches);
+          const mock = toObject({
+            request: { ...request },
+            ...raw,
+          }) as ReturnType<typeof operation>;
+          return { mock, parsedQuery };
+        },
       );
-      const mock = toObject({
-        request: { ...request },
-        ...raw,
-      }) as ReturnType<typeof operation>;
       mock.request.query = parsedQuery;
       Error.captureStackTrace(mock, builder);
-      mock.stack = mock.stack?.slice(6);
       return addOperationTransforms(
         name,
         options?.finalizeOperation

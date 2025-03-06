@@ -35,6 +35,7 @@ type Post implements Node {
   title: String!
   content: String!
   author: User!
+  coauthor: User
 }
 
 # Union type
@@ -52,6 +53,10 @@ input CreatePostInput {
   title: String!
   content: String!
   authorId: ID!
+}
+
+input InputWithNullableArray {
+  tags: [String!]
 }
 
 input UpdateUserInput {
@@ -91,6 +96,10 @@ type Query {
     nullableNullableScalars: [String],
     nonnullableNonnullableNonnullableScalars: [[String!]!]!,
     nullableNullableNullableScalars: [[String]],
+  ): Boolean
+
+  queryWithInputWithNullableArray(
+    inputWithNullableArray: InputWithNullableArray,
   ): Boolean
 }
 

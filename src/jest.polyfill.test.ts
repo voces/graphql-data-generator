@@ -56,3 +56,17 @@ if (packageJson.main !== "./lib/index.js") {
 
   console.log("Patched graphql-tag package.json successfully.");
 }
+
+let _fail: unknown;
+globalThis.fail = (error) => {
+  _fail = error instanceof Error ? error : Object.assign(new Error(), error);
+  throw error;
+};
+
+afterEach(() => {
+  if (_fail) {
+    const error = _fail;
+    _fail = undefined;
+    throw error;
+  }
+});

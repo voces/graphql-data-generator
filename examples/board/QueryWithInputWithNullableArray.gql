@@ -1,0 +1,3 @@
+query QueryWithInputWithNullableArray($inputWithNullableArray: InputWithNullableArray) {
+  queryWithInputWithNullableArray(inputWithNullableArray: $inputWithNullableArray)
+}

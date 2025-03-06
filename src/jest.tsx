@@ -1,19 +1,28 @@
-import "https://esm.sh/@types/jest@29.5.3/index.d.ts";
+/// <reference types="https://esm.sh/@types/jest@29.5.3/index.d.ts" />
 // @deno-types="npm:@types/react"
 import React, { useMemo } from "npm:react";
-import { ApolloLink, type Operation } from "npm:@apollo/client";
-import { ErrorLink } from "npm:@apollo/client/link/error/index.js";
 import {
-  MockedProvider,
+  ApolloLink,
+  type Operation,
+  useApolloClient,
+} from "npm:@apollo/client";
+import { onError } from "npm:@apollo/client/link/error";
+import {
+  MockedProvider as ApolloMockedProvider,
+  MockedProviderProps,
   MockedResponse,
   MockLink,
-} from "npm:@apollo/client/testing/index.js";
+} from "npm:@apollo/client/testing";
 
-import type { OperationMock } from "./types.ts";
 import { waitFor } from "npm:@testing-library/dom";
-import { print } from "npm:graphql";
+import { DocumentNode, Kind, print } from "npm:graphql";
 import { diff as jestDiff } from "npm:jest-diff";
-// import { dim, green, inverse, red, yellow } from "jsr:@std/fmt@1/colors";
+
+type ExtendedMockedResponse = MockedResponse & {
+  stack?: string;
+  watch?: boolean;
+  optional?: boolean;
+};
 
 declare namespace jasmine {
   type CustomReporterResult = {
@@ -32,29 +41,37 @@ jasmine.getEnv().addReporter({
   specStarted: (result) => currentSpecResult = result,
 });
 
-const afterTest: (() => Promise<void>)[] = [];
+const afterTest: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
-  for (const hook of afterTest) await hook();
-  afterTest.splice(0);
+  const hooks = afterTest.splice(0);
+  for (const hook of hooks) await hook();
 });
 
 const diff = (a: unknown, b: unknown) =>
-  jestDiff(a, b, {
-    omitAnnotationLines: true,
-    // aColor: green,
-    // bColor: red,
-    // changeColor: inverse,
-    // commonColor: dim,
-    // patchColor: yellow,
-  })
+  jestDiff(a, b, { omitAnnotationLines: true })
     ?.replace(/\w+ \{/g, "{") // Remove class names
     .replace(/\w+ \[/g, "["); // Remove array class names
 
+const getOperationDefinition = (document: DocumentNode) =>
+  document.definitions.find((d) => d.kind === Kind.OPERATION_DEFINITION);
+
+const getOperationType = (operation: Operation) =>
+  getOperationDefinition(operation.query)?.operation ??
+    "<unknown operation type>";
+
+const getOperationName = (document: DocumentNode) =>
+  getOperationDefinition(document)?.name?.value;
+
+const getOperationInfo = (document: DocumentNode) => {
+  const def = getOperationDefinition(document);
+  return {
+    name: def?.name?.value ?? "<unknown operation>",
+    operationType: def?.operation ?? "<unknown operation type>",
+  };
+};
+
 const getErrorMessage = (operation: Operation, mockLink: MockLink) => {
-  const definition = operation.query.definitions[0];
-  const operationType = definition.kind === "OperationDefinition"
-    ? definition.operation
-    : "<unknown operation type>";
+  const operationType = getOperationType(operation);
   const key = JSON.stringify({
     query: print(operation.query),
   });
@@ -65,7 +82,7 @@ const getErrorMessage = (operation: Operation, mockLink: MockLink) => {
   })
     .mockedResponsesByKey[key] ?? []) as MockedResponse[];
   let errorMessage =
-    `Expected GraphQL ${operationType} ${operation.operationName} to have been mocked`;
+    `Expected ${operationType} ${operation.operationName} to have been mocked`;
 
   if (alts.length || Object.keys(operation.variables).length > 0) {
     errorMessage += ` with variables ${
@@ -98,46 +115,132 @@ const getErrorMessage = (operation: Operation, mockLink: MockLink) => {
   };
 };
 
-export const MockProvider = (
-  { mocks, stack, children }: {
-    mocks: OperationMock[];
-    stack?: string;
-    children?: React.ReactNode;
-  },
+let _failRefetchWarnings = false;
+/**
+ * In older versions of `@apollo/client`, refetches with missing mocks trigger
+ * warnings instead of being treated as standard missing mocks.
+ * This utility converts those warnings into failures and ensures watch queries
+ * are installed for queries with `watch: true`. This must be set when
+ * `MockProvider` is mounted.
+ *
+ * This is not required on modern version of `@apollo/client`.
+ */
+export const failRefetchWarnings = (value = true) =>
+  _failRefetchWarnings = value;
+
+let _allowMissingMocks = false;
+/**
+ * Allows missing mocks, resulting in tests passing. Usage is intended to ease
+ * migration.
+ */
+export const allowMissingMocks = (value: true) => _allowMissingMocks = value;
+
+const AutoWatch = ({ mocks }: { mocks: ExtendedMockedResponse[] }) => {
+  const client = useApolloClient();
+  for (const mock of mocks) if (mock.watch) client.watchQuery(mock.request);
+  return null;
+};
+
+let lastMocks: ExtendedMockedResponse[] = [];
+
+// deno-lint-ignore ban-types
+const getStack = (to: Function) => {
+  const obj: { stack?: string } = {};
+  Error.captureStackTrace(obj, to);
+  return obj.stack;
+};
+
+const _waitForMocks = async (
+  mocks: ExtendedMockedResponse[],
+  cause?: string,
 ) => {
-  const observableMocks = useMemo(() => {
-    const observableMocks = mocks.map((m) => ({
-      ...m,
-      stack: m.stack,
-      result: Object.assign(jest.fn(() => m.result), m.result),
-    }));
-    afterTest.push(async () => {
+  for (const mock of mocks) {
+    if (mock.optional || mock.error) continue;
+    await waitFor(() => {
       if (currentSpecResult.failedExpectations.length) return;
-      for (const mock of observableMocks) {
-        if ("optional" in mock && mock.optional || mock.error) continue;
-        await waitFor(() => {
-          if (currentSpecResult.failedExpectations.length) return;
-          if ((mock.result as jest.Mock).mock.calls.length === 0) {
-            const err = new Error(
-              `Expected to have used mock ${
-                mock.request.variables
-                  ? ` with variables ${
-                    Deno.inspect(mock.request.variables, {
-                      depth: Infinity,
-                      colors: true,
-                    })
-                  }`
-                  : ""
-              }`,
-            );
-            err.stack = `${err.message}\n${
-              mock.stack ?? stack ?? err.stack?.slice(6)
-            }`;
-            throw err;
-          }
-        }, { onTimeout: (e) => e });
+      if ((mock.result as jest.Mock).mock.calls.length === 0) {
+        const { name, operationType } = getOperationInfo(mock.request.query);
+        const err = new Error(
+          `Expected to have used ${operationType} ${name}${
+            mock.request.variables
+              ? ` with variables ${
+                Deno.inspect(mock.request.variables, {
+                  depth: Infinity,
+                  colors: true,
+                })
+              }`
+              : ""
+          }`,
+        );
+        if (mock.stack) {
+          err.stack = `${mock.stack}${cause ? `\nCaused by: ${cause}` : ""}`;
+        } else if (cause) err.stack = cause;
+        throw err;
       }
     });
+  }
+};
+
+/**
+ * Wait for mocks to have been used.
+ * @param mock If `undefined`, waits for all mocks. If a number, waits fort he first `mocks` mocks. If a string, waits for all mocks up until and including that mock.
+ * @param offset If `mocks` is a string, grabs the `offset`th mock of that name (e.g., the third `getReport` mock)
+ */
+export const waitForMocks = async (
+  mock: number | string = lastMocks.length,
+  offset = 0,
+) => {
+  if (typeof mock === "string") {
+    const matches = lastMocks.map((m, i) => [m, i] as const)
+      .filter(([m]) => getOperationName(m.request.query) === mock);
+    if (matches.length <= offset) {
+      fail({
+        name: "Error",
+        message: `Expected mock ${mock} to have been mocked`,
+        stack: getStack(waitForMocks),
+      });
+    }
+    expect(matches.length).toBeGreaterThan(offset);
+    mock = matches[offset][1] + 1;
+  }
+  await _waitForMocks(lastMocks.slice(0, mock), getStack(waitForMocks));
+};
+
+/**
+ * A wrapper for `@apollo/client/testing`, this component will assert all
+ * requests have matching mocks and all defined mocks are used unless marked
+ * `optional`.
+ */
+export const MockedProvider = (
+  { mocks, stack: renderStack, children, link: passedLink, ...rest }:
+    & Omit<MockedProviderProps, "mocks">
+    & {
+      mocks: ReadonlyArray<ExtendedMockedResponse>;
+      stack?: string;
+    },
+) => {
+  const observableMocks = useMemo(() => {
+    const observableMocks = mocks.flatMap((m): ExtendedMockedResponse[] => [
+      {
+        ...m,
+        stack: m.stack,
+        result: Object.assign(jest.fn(() => m.result), m.result),
+      },
+      ...(m.watch
+        ? [{
+          ...m,
+          stack: m.stack,
+          result: Object.assign(jest.fn(() => m.result), m.result),
+          watch: false,
+          // TODO: this might be dependent on Apollo version or refetch method,
+          // ideally should be asserted when we can (maybe when
+          // _failRefetchWarnings is false?)
+          optional: true,
+        }]
+        : []),
+    ]);
+    lastMocks = observableMocks;
+    afterTest.push(() => _waitForMocks(lastMocks, renderStack));
     return observableMocks;
   }, [mocks]);
 
@@ -145,24 +248,64 @@ export const MockProvider = (
     const mockLink = new MockLink(observableMocks);
     mockLink.showWarnings = false;
 
-    const errorLoggingLink = new ErrorLink(({ networkError, operation }) => {
-      if (!networkError?.message.includes("No more mocked responses")) return;
+    const errorLoggingLink = onError(({ networkError, operation }) => {
+      if (
+        _allowMissingMocks ||
+        !networkError?.message?.includes("No more mocked responses")
+      ) return;
       const { message, stack: altStack } = getErrorMessage(operation, mockLink);
       try {
         networkError.message = message;
-        const finalStack = altStack ?? stack
-          ? `${message}\n${altStack ?? stack}`
-          : undefined;
-        if (finalStack) networkError.stack = finalStack;
-        fail({ name: "Error", message, stack: finalStack });
+        if (altStack) {
+          networkError.stack = renderStack
+            ? `${altStack}\nCaused By: ${renderStack}`
+            : altStack;
+        } else if (renderStack) networkError.stack = renderStack;
+        fail({ name: "Error", message, stack: networkError.stack });
       } catch {
         // fail both throws and marks the test as failed in jest; we only need the latter
       }
     });
 
-    // @ts-ignore It's fine
-    return ApolloLink.from([errorLoggingLink, mockLink]);
-  }, [observableMocks, stack]);
+    return ApolloLink.from([
+      errorLoggingLink,
+      mockLink,
+      ...(passedLink ? [passedLink] : []),
+    ]);
+  }, [observableMocks, renderStack]);
 
-  return <MockedProvider link={link}>{children}</MockedProvider>;
+  if (_failRefetchWarnings) {
+    const oldWarn = console.warn.bind(console.warn);
+    console.warn = (message, operation, ...etc) => {
+      if (
+        message !==
+          'Unknown query named "%s" requested in refetchQueries in options.include array'
+      ) {
+        return oldWarn(message, operation, ...etc);
+      }
+
+      try {
+        fail({
+          name: "Error",
+          message:
+            `Expected query ${operation} requested in refetchQueries options.include array to have bene mocked`,
+          stack: renderStack,
+        });
+      } catch {
+        // eat
+      }
+    };
+    afterTest.push(() => {
+      console.warn = oldWarn;
+    });
+  }
+
+  return (
+    <ApolloMockedProvider {...rest} link={link}>
+      <>
+        <AutoWatch mocks={observableMocks} />
+        {children}
+      </>
+    </ApolloMockedProvider>
+  );
 };

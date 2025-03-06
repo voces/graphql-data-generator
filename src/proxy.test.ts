@@ -1,6 +1,6 @@
 import { __Type, GraphQLError, parse } from "npm:graphql";
 import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
-import { operation, proxy } from "./proxy.ts";
+import { clear, operation, proxy } from "./proxy.ts";
 import type {
   Inputs,
   Mutation,
@@ -45,6 +45,7 @@ Deno.test("objects > simple object generation", () => {
         profilePicture: null,
         posts: [],
       },
+      coauthor: null,
     },
   );
 });
@@ -256,6 +257,7 @@ Deno.test("objects > incompatible patches goes with past patch", () => {
         profilePicture: null,
         role: "ADMIN",
       },
+      coauthor: null,
     },
   );
 
@@ -288,7 +290,7 @@ Deno.test("objects > interfaces > can resolve an interface with no patches", () 
   );
 });
 
-Deno.test("objects > interfaces > can resolve an inteface with a field hint", () => {
+Deno.test("objects > interfaces > can resolve an interface with a field hint", () => {
   assertObjectMatch(
     proxy<Types["Post"]>(definitions, scalars, "Node", { title: "heh" }),
     { __typename: "Post", title: "heh", author: { __typename: "User" } },
@@ -408,7 +410,7 @@ Deno.test("inputs > simple", () => {
       email: "scalar-String-CreateUserInput",
       name: "scalar-String-CreateUserInput",
       role: "ADMIN",
-      profilePicture: null,
+      profilePicture: undefined,
     },
   );
 });
@@ -432,11 +434,11 @@ Deno.test("inputs > nested", () => {
         title: "scalar-String-CreatePostInput",
       },
       updateUser: {
-        email: null, // nullable because update input
+        email: undefined, // nullable because update input
         id: "scalar-ID-UpdateUserInput",
-        name: null,
-        profilePicture: null,
-        role: null,
+        name: undefined,
+        profilePicture: undefined,
+        role: undefined,
       },
     },
   );
@@ -962,7 +964,7 @@ Deno.test("operations > mutations", async () => {
             name: "name",
             role: "ADMIN",
             // TODO: should be optional
-            profilePicture: null,
+            profilePicture: undefined,
           },
           foo: "scalar-ID-CreateUserVariables",
         },
@@ -1126,5 +1128,39 @@ Deno.test("interfaces > list", () => {
     )
       .map((v) => v.__typename),
     ["User", "Post"],
+  );
+});
+
+Deno.test("enums", () => {
+  assertEquals(proxy(definitions, scalars, "Role"), "ADMIN");
+  assertEquals(proxy(definitions, scalars, "Role", "Foo"), "Foo");
+});
+
+Deno.test("clear > top-level data fields", () => {
+  const query = "query Foo { nullableNonnullableScalars }";
+  type Operation = { data: { nullableNonnullableScalars: string[] | null } };
+
+  assertEquals(
+    operation<Operation>(
+      definitions,
+      scalars,
+      query,
+      { data: { nullableNonnullableScalars: ["yoo"] } },
+      { data: { nullableNonnullableScalars: clear } },
+    ).result.data?.nullableNonnullableScalars,
+    null,
+  );
+});
+
+Deno.test("clear > inputs", () => {
+  assertEquals(
+    proxy<Inputs["InputWithNullableArray"]>(
+      definitions,
+      scalars,
+      "InputWithNullableArray",
+      { tags: ["yoo"] },
+      { tags: clear },
+    ).tags,
+    undefined,
   );
 });

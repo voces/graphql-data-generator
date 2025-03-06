@@ -7,6 +7,10 @@ query GetPosts {
       id
       name
     }
+    coauthor {
+      id
+      name
+    }
     createdAt
   }
 }

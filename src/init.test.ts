@@ -111,6 +111,7 @@ Deno.test("objects", () => {
     createdAt: "scalar-DateTime-Post",
     id: "scalar-ID-Post",
     title: "scalar-String-Post",
+    coauthor: null,
   });
 });
 
@@ -201,14 +202,47 @@ Deno.test("objects > custom transform on builder", () => {
         profilePicture: "https://example.com/scalar-ID-User.png",
         role: "ADMIN",
       },
-      content: "scalar-String-Post",
+      content: "Post by scalar-String-User",
       createdAt: "scalar-DateTime-Post",
       id: "scalar-ID-Post",
       title: "scalar-String-Post",
+      coauthor: null,
     }],
     profilePicture: "https://example.com/scalar-ID-User.png",
     role: "ADMIN",
   });
+});
+
+Deno.test("objects > patched default values in next arrays", () => {
+  const build = init<Query, Mutation, Subscription, Types, Inputs>(
+    schema,
+    queries,
+    mutations,
+    subscriptions,
+    types,
+    inputs,
+    scalars,
+  )(() => ({ Post: { default: { title: "Title!" } } }));
+  assertEquals(
+    build.User(
+      { posts: { next: { title: (p) => `${p.title}1` } } },
+      { posts: { next: { title: (p) => `${p.title}2` } } },
+    ).posts.map((p) => p.title),
+    ["Title!1", "Title!2"],
+  );
+});
+
+Deno.test("objects > default values in nullable props", () => {
+  const build = init<Query, Mutation, Subscription, Types, Inputs>(
+    schema,
+    queries,
+    mutations,
+    subscriptions,
+    types,
+    inputs,
+    scalars,
+  )(() => ({ User: { default: { name: "Tim" } } }));
+  assertEquals(build.Post({ coauthor: {} }).coauthor?.name, "Tim");
 });
 
 Deno.test("inputs", () => {
@@ -366,6 +400,28 @@ Deno.test("query > data chained", () => {
   );
 });
 
+Deno.test("query > data > default object values", () => {
+  const build = init<Query, Mutation, Subscription, Types, Inputs>(
+    schema,
+    queries,
+    mutations,
+    subscriptions,
+    types,
+    inputs,
+    scalars,
+  )(() => ({ User: { default: { name: "Bob" } } }));
+  assertEquals(
+    build.GetPosts({ data: { posts: [{}] } }).result.data?.posts[0].author.name,
+    "Bob",
+  );
+  assertEquals(
+    build.GetPosts({
+      data: { posts: [{ author: { name: (p) => `${p.name}2` } }] },
+    }).result.data?.posts[0].author.name,
+    "Bob2",
+  );
+});
+
 Deno.test("query > custom transform on object", () => {
   const o1 = build.queryWithVariables();
   const o2 = o1.flip();
@@ -389,10 +445,8 @@ Deno.test("query > fragments", async () => {
     {
       request: {
         query: parse(
-          (await Deno.readTextFile("examples/board/Search.gql")).replace(
-            '#import "./NodeFragment.gql"',
+          await Deno.readTextFile("examples/board/Search.gql") + "\n\n" +
             await Deno.readTextFile("examples/board/NodeFragment.gql"),
-          ),
         ),
         variables: { term: "scalar-String-SearchVariables" },
       },
