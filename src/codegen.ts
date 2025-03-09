@@ -257,7 +257,9 @@ const getSelectionsType = (
             fragments,
             references,
             includeTypenames,
-          ),
+          ).map((
+            [name, type],
+          ): SelectionType => [name, type, fragment.typeCondition.name.value]),
         );
         break;
       }

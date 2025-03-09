@@ -1,3 +1,7 @@
+# 0.3.1
+
+- **[bugfix]** Generated types handles fragments in unions.
+
 # 0.3.0
 
 - **[Breaking]** Added a universal `patch` transform for built operations, which

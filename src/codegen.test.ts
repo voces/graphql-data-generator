@@ -733,3 +733,86 @@ Deno.test("typesFile > namingConvention", () => {
     `),
   );
 });
+
+Deno.test("importing fragments & unions", () => {
+  assertEquals(
+    codegen(
+      `
+      type Foo {
+        foo: Boolean!
+      }
+
+      type Bar {
+        bar: Boolean!
+      }
+
+      union Thing = Foo | Bar
+      
+      type Query {
+        thing: Thing!
+      }
+      `,
+      [{
+        path: "FooFragment.gql",
+        content: `
+          fragment FooFragment on Foo {
+            foo
+          }
+        `,
+      }, {
+        path: "query.gql",
+        content: `
+        #import "./FooFragment.gql"
+
+        query myThing {
+          thing {
+            ...FooFragment
+            ... on Bar {
+              bar
+            }
+          }
+        }
+        `,
+      }],
+    ),
+    trimIndent(`
+    type Boolean = boolean;
+
+    type Foo = {
+      __typename: "Foo";
+      foo: Boolean;
+    };
+
+    type Bar = {
+      __typename: "Bar";
+      bar: Boolean;
+    };
+
+    export type Types = {
+      Foo: Foo;
+      Bar: Bar;
+    };
+
+    export const types = ["Foo", "Bar"] as const;
+
+    type myThing = {
+      thing: {
+        __typename: "Foo";
+        foo: Boolean;
+      } | {
+        __typename: "Bar";
+        bar: Boolean;
+      };
+    };
+
+    export type Query = {
+      myThing: { data: myThing; };
+    };
+
+    export const queries = {
+      myThing: "query.gql",
+    };
+
+    `),
+  );
+});
