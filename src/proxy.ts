@@ -3,11 +3,16 @@ import type {
   DefinitionNode,
   DocumentNode,
   EnumTypeDefinitionNode,
+  FieldNode,
   FragmentDefinitionNode,
   GraphQLError,
+  InputObjectTypeDefinitionNode,
+  InputObjectTypeExtensionNode,
   InterfaceTypeDefinitionNode,
+  InterfaceTypeExtensionNode,
   NameNode,
   ObjectTypeDefinitionNode,
+  ObjectTypeExtensionNode,
   OperationDefinitionNode,
   SelectionSetNode,
   TypeNode,
@@ -54,7 +59,10 @@ export const withGetDefaultPatch = <T>(
 
 const builtInScalars = ["Int", "Float", "String", "Boolean", "ID"];
 
-const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
+const resolveType = (
+  definitions: readonly DefinitionNode[],
+  path: string,
+) => {
   let definition: (NamedDefinitionNode) | undefined;
   let type: TypeNode | undefined;
   let parent: string | undefined;
@@ -87,7 +95,7 @@ const resolveType = (definitions: readonly DefinitionNode[], path: string) => {
       type = undefined;
       if (kind === "field") {
         const field = "fields" in definition
-          ? definition.fields?.find((f) => f.name.value === name)
+          ? getField(definitions, definition, name)
           : undefined;
         if (!field) {
           throw new Error(
@@ -154,6 +162,7 @@ const resolveConcreteType = <T>(
   definition: InterfaceTypeDefinitionNode | UnionTypeDefinitionNode,
   patch?: Patch<T>,
   prev?: T,
+  selectionSet?: SelectionSetNode,
 ) => {
   const objectDefinitions = definitions.filter((
     d,
@@ -191,11 +200,16 @@ const resolveConcreteType = <T>(
 
   if (options.length === 1) return options[0];
 
-  for (const field in patch) {
+  for (const alias in patch) {
+    const field = selectionSet
+      ? getSelectionField(definitions, selectionSet, alias)?.name.value ?? alias
+      : alias;
     options = options.filter((o) =>
       field === "__typename"
-        ? o.name.value === patch[field]
-        : o.fields?.some((f) => f.name.value === field)
+        ? o.name.value === patch[alias]
+        : o.fields?.some((f) => f.name.value === field) ||
+          (definition.kind === Kind.INTERFACE_TYPE_DEFINITION &&
+            definition.fields?.some((f) => f.name.value === field))
     );
     if (options.length === 1) return options[0];
   }
@@ -283,7 +297,7 @@ const getSelectionField = (
   selectionSet: SelectionSetNode,
   selection: string,
   typename?: string,
-) => {
+): FieldNode | undefined => {
   for (const s of selectionSet.selections) {
     switch (s.kind) {
       case Kind.FIELD:
@@ -309,12 +323,13 @@ const getSelectionField = (
           !s.typeCondition || !typename ||
           s.typeCondition.name.value === typename
         ) {
-          return getSelectionField(
+          const value = getSelectionField(
             definitions,
             s.selectionSet,
             selection,
             typename,
           );
+          if (value) return value;
         }
       }
     }
@@ -326,7 +341,7 @@ const getSelectionSetSelection = (
   selectionSet: SelectionSetNode,
   selection: string,
   typename?: string,
-) => {
+): SelectionSetNode | undefined => {
   for (const s of selectionSet.selections) {
     switch (s.kind) {
       case Kind.FIELD:
@@ -354,12 +369,13 @@ const getSelectionSetSelection = (
           !s.typeCondition || !typename ||
           s.typeCondition.name.value === typename
         ) {
-          return getSelectionSetSelection(
+          const value = getSelectionSetSelection(
             definitions,
             s.selectionSet,
             selection,
             typename,
           );
+          if (value) return value;
         }
       }
     }
@@ -403,6 +419,38 @@ const selectionSetToKeys = (
     }
   }
   return keys;
+};
+
+const getField = (
+  definitions: readonly DefinitionNode[],
+  definition:
+    | InputObjectTypeDefinitionNode
+    | InputObjectTypeExtensionNode
+    | InterfaceTypeDefinitionNode
+    | InterfaceTypeExtensionNode
+    | ObjectTypeDefinitionNode
+    | ObjectTypeExtensionNode,
+  name: string,
+) => {
+  const field = definition.fields?.find((f) => f.name.value === name);
+  if (field) return field;
+  if (
+    !("interfaces" in definition) ||
+    !definition.interfaces?.length
+  ) return;
+  for (const interfaceName of definition.interfaces) {
+    const interfaceDefinition = definitions.find((
+      d,
+    ): d is InterfaceTypeDefinitionNode =>
+      d.kind === Kind.INTERFACE_TYPE_DEFINITION &&
+      d.name.value === interfaceName.name.value
+    );
+    if (!interfaceDefinition) continue;
+    const field = interfaceDefinition.fields?.find((f) =>
+      f.name.value === name
+    );
+    if (field) return field;
+  }
 };
 
 const _proxy = <T>(
@@ -538,9 +586,7 @@ const _proxy = <T>(
           : undefined;
         const unaliased = selectionField ? selectionField.name.value : prop;
 
-        const field = definition.fields?.find((f) =>
-          f.name.value === unaliased
-        );
+        const field = getField(definitions, definition, unaliased);
         if (!field) return target[prop as keyof T];
 
         // Get from patch
@@ -554,7 +600,7 @@ const _proxy = <T>(
             return target[prop as keyof T] = _proxy(
               definitions,
               scalars,
-              `${path}.${prop}`,
+              `${path}.${unaliased}`,
               [],
               { selectionSet },
             );
@@ -569,12 +615,16 @@ const _proxy = <T>(
               return target[prop as keyof T] = _proxy(
                 definitions,
                 scalars,
-                `${path}.${prop}`,
+                `${path}.${unaliased}`,
                 [value],
                 {
                   prev: prev?.[prop as keyof T],
                   selectionSet: selectionSet
-                    ? getSelectionSetSelection(definitions, selectionSet, prop)
+                    ? getSelectionSetSelection(
+                      definitions,
+                      selectionSet,
+                      unaliased,
+                    )
                     : undefined,
                 },
               );
@@ -587,12 +637,16 @@ const _proxy = <T>(
             return target[prop as keyof T] = _proxy<Child>(
               definitions,
               scalars,
-              `${path}.${prop}`,
+              `${path}.${unaliased}`,
               childPatches,
               {
                 prev: prev?.[prop as keyof T],
                 selectionSet: selectionSet
-                  ? getSelectionSetSelection(definitions, selectionSet, prop)
+                  ? getSelectionSetSelection(
+                    definitions,
+                    selectionSet,
+                    unaliased,
+                  )
                   : undefined,
                 nonNull: true,
               },
@@ -620,7 +674,7 @@ const _proxy = <T>(
           {
             hostType: definition.name.value,
             path,
-            prop,
+            prop: unaliased,
             selectionSet: selectionSet
               ? getSelectionSetSelection(definitions, selectionSet, prop)
               : undefined,
@@ -671,6 +725,7 @@ const _proxy = <T>(
         definition,
         patch,
         prev,
+        selectionSet,
       );
       return _proxy(definitions, scalars, concreteType.name.value, patches, {
         prev,

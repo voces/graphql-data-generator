@@ -25,6 +25,7 @@ const optionalPeerDependencies = [
   "@types/react",
   "@apollo/client",
   "@testing-library/dom",
+  "@testing-library/react",
 ];
 const peerDependencies = [
   "graphql",

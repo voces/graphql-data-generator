@@ -1131,6 +1131,157 @@ Deno.test("interfaces > list", () => {
   );
 });
 
+Deno.test("interfaces > aliases", () => {
+  const schema = parse(`
+    interface Interface {
+      interface: String!
+    }
+
+    type FooChild {
+      value: String!
+    }
+
+    type Foo implements Interface {
+      foo: String!
+      fooChild: FooChild
+    }
+
+    type Bar implements Interface {
+      bar: String!
+    }
+
+    type Container {
+      foo: Interface!
+    }
+
+    type Query {
+      foo: Interface!
+      container: Container!
+    }
+  `).definitions;
+  const query = `
+    query getFoo {
+      foo {
+        aliasedInterface: interface
+        ... on Foo {
+          aliasedFoo: foo
+          aliasedFooChild: fooChild
+        }
+        ... on Bar {
+          aliasedBar: bar
+        }
+      }
+    }
+  `;
+  type T = {
+    data: {
+      foo: {
+        __typename: "Foo";
+        aliasedInterface: string;
+        aliasedFoo: string;
+        aliasedFooChild?: {
+          __typename: "FooChild";
+          value: string;
+        } | null;
+      } | {
+        __typename: "Bar";
+        aliasedInterface: string;
+        aliasedBar: string;
+      };
+    };
+  };
+
+  assertEquals(
+    operation<T>(
+      schema,
+      scalars,
+      query,
+      { data: { foo: {} } },
+    ).result.data,
+    {
+      foo: {
+        __typename: "Foo",
+        aliasedInterface: "scalar-String-Foo",
+        aliasedFoo: "scalar-String-Foo",
+        aliasedFooChild: null,
+      },
+    },
+  );
+
+  assertEquals(
+    operation<T>(
+      schema,
+      scalars,
+      query,
+      { data: { foo: { aliasedInterface: "yoo", aliasedFoo: "heh" } } },
+    ).result.data,
+    {
+      foo: {
+        __typename: "Foo",
+        aliasedInterface: "yoo",
+        aliasedFoo: "heh",
+        aliasedFooChild: null,
+      },
+    },
+  );
+
+  assertEquals(
+    operation<T>(
+      schema,
+      scalars,
+      query,
+      { data: { foo: { aliasedInterface: "yoo", aliasedFoo: "heh" } } },
+      { data: { foo: { aliasedBar: "this" } } },
+    ).result.data,
+    { foo: { __typename: "Bar", aliasedInterface: "yoo", aliasedBar: "this" } },
+  );
+
+  assertEquals(
+    operation<T>(
+      schema,
+      scalars,
+      query,
+      { data: { foo: { aliasedFooChild: { value: "ok" } } } },
+    ).result.data,
+    {
+      foo: {
+        __typename: "Foo",
+        aliasedInterface: "scalar-String-Foo",
+        aliasedFoo: "scalar-String-Foo",
+        aliasedFooChild: { __typename: "FooChild", value: "ok" },
+      },
+    },
+  );
+
+  const query2 = `
+    query getContainerFoo {
+      container {
+        hmm: foo {
+          aliasedInterface: interface
+        }
+      }
+    }
+  `;
+  assertEquals(
+    operation<
+      {
+        data: {
+          container: {
+            __typename: "Container";
+            hmm: { __typename: "Foo"; aliasedInterface: string };
+          };
+        };
+      }
+    >(schema, scalars, query2).result.data,
+    {
+      container: {
+        __typename: "Container",
+        hmm: { __typename: "Foo", aliasedInterface: "scalar-String-Foo" },
+      },
+    },
+  );
+});
+
 Deno.test("enums", () => {
   assertEquals(proxy(definitions, scalars, "Role"), "ADMIN");
   assertEquals(proxy(definitions, scalars, "Role", "Foo"), "Foo");

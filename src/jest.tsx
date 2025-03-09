@@ -13,10 +13,11 @@ import {
   MockedResponse,
   MockLink,
 } from "npm:@apollo/client/testing";
-
 import { waitFor } from "npm:@testing-library/dom";
 import { DocumentNode, Kind, print } from "npm:graphql";
 import { diff as jestDiff } from "npm:jest-diff";
+import "npm:@testing-library/react/dont-cleanup-after-each";
+import { cleanup } from "npm:@testing-library/react";
 
 type ExtendedMockedResponse = MockedResponse & {
   stack?: string;
@@ -41,10 +42,23 @@ jasmine.getEnv().addReporter({
   specStarted: (result) => currentSpecResult = result,
 });
 
+let _skipCleanupAfterEach = false;
+/**
+ * `@testing-library/react` automatically unmounts React trees that were mounted
+ * with render after each test, which `graphql-data-generator` hijacks to ensure
+ * cleanup is done after all mocks are consumed. Invoke this functions to
+ * disable automatic cleanup.
+ * @param value
+ */
+export const skipCleanupAfterEach = (value = false) => {
+  _skipCleanupAfterEach = value;
+};
+
 const afterTest: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   const hooks = afterTest.splice(0);
   for (const hook of hooks) await hook();
+  if (!_skipCleanupAfterEach) cleanup();
 });
 
 const diff = (a: unknown, b: unknown) =>
@@ -221,16 +235,28 @@ export const MockedProvider = (
 ) => {
   const observableMocks = useMemo(() => {
     const observableMocks = mocks.flatMap((m): ExtendedMockedResponse[] => [
-      {
+      typeof m.result === "function" && "mock" in m.result ? m : {
         ...m,
         stack: m.stack,
-        result: Object.assign(jest.fn(() => m.result), m.result),
+        result: Object.assign(
+          jest.fn((vars) =>
+            typeof m.result === "function" ? m.result(vars) : m.result
+          ),
+          m.result,
+        ),
       },
       ...(m.watch
         ? [{
           ...m,
           stack: m.stack,
-          result: Object.assign(jest.fn(() => m.result), m.result),
+          result: typeof m.result === "function" && "mock" in m.result
+            ? m.result
+            : Object.assign(
+              jest.fn((vars) =>
+                typeof m.result === "function" ? m.result(vars) : m.result
+              ),
+              m.result,
+            ),
           watch: false,
           // TODO: this might be dependent on Apollo version or refetch method,
           // ideally should be asserted when we can (maybe when
@@ -278,17 +304,15 @@ export const MockedProvider = (
     const oldWarn = console.warn.bind(console.warn);
     console.warn = (message, operation, ...etc) => {
       if (
-        message !==
-          'Unknown query named "%s" requested in refetchQueries in options.include array'
-      ) {
-        return oldWarn(message, operation, ...etc);
-      }
+        typeof message !== "string" ||
+        !message.match(/Unknown query named.*refetchQueries/)
+      ) return oldWarn(message, operation, ...etc);
 
       try {
         fail({
           name: "Error",
           message:
-            `Expected query ${operation} requested in refetchQueries options.include array to have bene mocked`,
+            `Expected query ${operation} requested in refetchQueries options.include array to have been mocked`,
           stack: renderStack,
         });
       } catch {
