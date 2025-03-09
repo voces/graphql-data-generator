@@ -51,7 +51,6 @@ await build({
   shims: {
     deno: true,
   },
-  // scriptModule: false,
   skipSourceOutput: true,
   test: false,
   declaration: "separate",

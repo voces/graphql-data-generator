@@ -1,10 +1,30 @@
 # 0.3.0
 
-- **[Breaking]** Added `patch` to `OperationMock` and automatically set it on
-  all operations.
-- **[feat]** Added `MockProvider` to improve missing mock errors and assert on
-  unused mocks.
-- **[bugfix]** Implemented `variables` and `data` automatic patches.
+- **[Breaking]** Added a universal `patch` transform for built operations, which
+  is now automatically applied to all operations.
+- **[feat]** Introduced a new `MockProvider` to improve error messaging for
+  missing mocks and to assert on unused mocks. Also added configuration options:
+  `skipCleanupAfterEach`, `failRefetchWarnings`, `allowMissingMocks`, and
+  `waitForMocks`.
+- **[feat]** Added a new `stack` property to `OperationMock`, automatically set
+  during operation creation. Additionally, introduced `watch` and `optional`
+  properties for the new `MockProvider` component.
+- **[feat]** Exposed `OperationMock` and `operation` as exports.
+- **[feat]** Added a `clear` export to support setting nullable input fields to
+  `undefined`.
+- **[bugfix]** Implemented universal patch transforms for `variables` and
+  `data`.
+- **[bugfix]** Updated the generation of `package.json` to support Node.js 16.
+- **[bugfix]** Wrapped the CLI in an immediately invoked function, eliminating
+  the need for top-level async support.
+- **[bugfix]** Improved handling of import statements in GraphQL files.
+- **[bugfix]** Fixed an issue where default patches were not applied to deep
+  objects.
+- **[bugfix]** Enhanced stack capture functionality to include both where the
+  mock is built and where the component is rendered.
+- **[bugfix]** Improved the resolution of concrete types from interfaces.
+- **[bugfix]** Enhanced field aliasing.
+- **[bugfix]** Added direct `proxy` support for enums.
 
 # 0.2.4
 
