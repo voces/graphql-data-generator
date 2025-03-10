@@ -747,9 +747,13 @@ Deno.test("importing fragments & unions", () => {
       }
 
       union Thing = Foo | Bar
+
+      type Container {
+        thing: Thing!
+      }
       
       type Query {
-        thing: Thing!
+        container: Container!
       }
       `,
       [{
@@ -765,10 +769,12 @@ Deno.test("importing fragments & unions", () => {
         #import "./FooFragment.gql"
 
         query myThing {
-          thing {
-            ...FooFragment
-            ... on Bar {
-              bar
+          container {
+            thing {
+              ...FooFragment
+              ... on Bar {
+                bar
+              }
             }
           }
         }
@@ -788,20 +794,32 @@ Deno.test("importing fragments & unions", () => {
       bar: Boolean;
     };
 
+    type Thing = Foo | Bar;
+
+    type Container = {
+      __typename: "Container";
+      thing: Thing;
+    };
+
     export type Types = {
       Foo: Foo;
       Bar: Bar;
+      Thing: Thing;
+      Container: Container;
     };
 
-    export const types = ["Foo", "Bar"] as const;
+    export const types = ["Foo", "Bar", "Thing", "Container"] as const;
 
     type myThing = {
-      thing: {
-        __typename: "Foo";
-        foo: Boolean;
-      } | {
-        __typename: "Bar";
-        bar: Boolean;
+      container: {
+        __typename: "Container";
+        thing: {
+          __typename: "Foo";
+          foo: Boolean;
+        } | {
+          __typename: "Bar";
+          bar: Boolean;
+        };
       };
     };
 
@@ -811,6 +829,105 @@ Deno.test("importing fragments & unions", () => {
 
     export const queries = {
       myThing: "query.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("exhaustive union interface types", () => {
+  assertEquals(
+    codegen(
+      `
+      interface Node {
+        id: String!
+      }
+
+      type User implements Node {
+        id: String!
+        user: String!
+      }
+
+      type Post implements Node {
+        id: String!
+        post: String!
+      }
+
+      union NodeType = User | Post
+
+      type Query {
+        node: NodeType!
+      }
+      `,
+      [{
+        path: "NodeFragment.gql",
+        content: `
+          fragment NodeFragment on Node {
+            id
+          }
+        `,
+      }, {
+        path: "query.gql",
+        content: `
+        #import "./NodeFragment.gql"
+
+        query myNode {
+          node {
+            ...NodeFragment
+            ... on User {
+              user
+            }
+            ... on Post {
+              post
+            }
+          }
+        }
+        `,
+      }],
+    ),
+    trimIndent(`
+    type String = string;
+
+    type User = {
+      __typename: "User";
+      id: String;
+      user: String;
+    };
+
+    type Post = {
+      __typename: "Post";
+      id: String;
+      post: String;
+    };
+
+    type NodeType = User | Post;
+
+    export type Types = {
+      User: User;
+      Post: Post;
+      NodeType: NodeType;
+    };
+
+    export const types = ["User", "Post", "NodeType"] as const;
+
+    type myNode = {
+      node: {
+        id: String;
+      } & ({
+        __typename: "User";
+        user: String;
+      } | {
+        __typename: "Post";
+        post: String;
+      });
+    };
+
+    export type Query = {
+      myNode: { data: myNode; };
+    };
+
+    export const queries = {
+      myNode: "query.gql",
     };
 
     `),

@@ -245,6 +245,16 @@ Deno.test("objects > default values in nullable props", () => {
   assertEquals(build.Post({ coauthor: {} }).coauthor?.name, "Tim");
 });
 
+Deno.test("objects > union types", () => {
+  assertEquals(build.SearchResult().__typename, "User");
+  assertEquals(build.SearchResult({ title: "Coerce" }).__typename, "Post");
+});
+
+Deno.test("objects > interface types", () => {
+  assertEquals(build.Node().__typename, "User");
+  assertEquals(build.Node({ title: "Coerce" }).__typename, "Post");
+});
+
 Deno.test("inputs", () => {
   assertEquals<Inputs["CreatePostInput"]>(
     build.CreatePostInput(),

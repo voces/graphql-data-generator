@@ -81,31 +81,64 @@ const getType = (
         props.fragments,
         props.references,
         props.includeTypenames,
-      ).reduce((union, [name, value, group]) => {
-        group ??= type.name.value;
-        if (!union[group]) {
-          union[group] = {};
-          Object.defineProperty(union[group], "__typename", {
-            enumerable: props.includeTypenames &&
-              props.definitions[group]?.[0].kind === "ObjectTypeDefinition",
-            value: { kind: "StringLiteral", value: group, optional: false },
-          });
-        }
-        union[group]![name] = value;
-        const def = props.definitions[group];
-        if (def) {
-          if (implementations.length) {
-            for (const implementation of implementations) {
-              implementation[1].add(name);
-            }
-          } else def[1].add(name);
-        }
+      ).reduce(
+        (union, [name, value, group]) => {
+          group ??= type.name.value;
+          if (!union[group]) {
+            union[group] = {};
+            Object.defineProperty(union[group], "__typename", {
+              enumerable: props.includeTypenames &&
+                props.definitions[group]?.[0].kind === "ObjectTypeDefinition",
+              value: { kind: "StringLiteral", value: group, optional: false },
+            });
+          }
+          union[group]![name] = value;
+          const def = props.definitions[group];
+          if (def) {
+            if (implementations.length) {
+              for (const implementation of implementations) {
+                implementation[1].add(name);
+              }
+            } else def[1].add(name);
+          }
 
-        return union;
-      }, {} as Record<string, Record<string, SerializableType>>);
+          return union;
+        },
+        {} as Record<string, Record<string, SerializableType>>,
+      );
 
       const value = groupedValues[type.name.value] ?? {};
       delete groupedValues[type.name.value];
+
+      if (def?.[0].kind === "UnionTypeDefinition") {
+        def[1].add(type.name.value);
+
+        // This is a terrible solution and we should instead produce a tree that
+        // is simplified
+        let iface = props.definitions[def[0].types?.[0]?.name.value ?? ""]?.[0];
+        if (iface && "interfaces" in iface) {
+          iface = props.definitions[iface.interfaces?.[0]?.name.value ?? ""]
+            ?.[0];
+        }
+        const interfaceName = iface?.kind === "InterfaceTypeDefinition"
+          ? iface.name.value
+          : undefined;
+        if (
+          interfaceName &&
+          groupedValues[interfaceName] &&
+          Object.keys(groupedValues).every((k) =>
+            k === interfaceName ||
+            (def[0] as UnionTypeDefinitionNode).types?.some((t) =>
+              t.name.value === k
+            )
+          )
+        ) {
+          Object.assign(value, groupedValues[interfaceName]);
+          delete groupedValues[interfaceName];
+        }
+      } else if (def?.[0].kind === "InterfaceTypeDefinition") {
+        def[1].add(type.name.value);
+      }
 
       const nonExhaustive = implementations
         .filter((o) => !(o[0].name.value in groupedValues)).map((o) =>
@@ -756,8 +789,6 @@ export const codegen = (
               }
               handledInputs.add(current);
             }
-
-            // return `type ${type.value} = ${serializeType(inputType)};`;
           },
         ).filter(Boolean)
       ).filter(filterOutputTypes),
@@ -842,24 +873,46 @@ ${Array.from(handledInputs).map((i) => `  ${i}: ${rename(i)};`).join("\n")}
     );
   }
 
+  // console.log(types["Node"]);
   const usedTypes = Object.entries(types)
     .map((
       [name, info],
     ): [string, TypeDefinitionNode, Set<string>] => [name, ...info!])
-    .filter((data): data is [string, ObjectTypeDefinitionNode, Set<string>] =>
-      data[1].kind === "ObjectTypeDefinition" && data[2].size > 0
+    .filter((
+      data,
+    ): data is [
+      string,
+      | ObjectTypeDefinitionNode
+      | UnionTypeDefinitionNode
+      | InterfaceTypeDefinitionNode,
+      Set<string>,
+    ] =>
+      (data[1].kind === "ObjectTypeDefinition" ||
+        data[1].kind === "UnionTypeDefinition" ||
+        data[1].kind === "InterfaceTypeDefinition") && data[2].size > 0
     );
 
   if (usedTypes.length) {
     serializedTypes.unshift(
       ...usedTypes.map(([name, type, usage]) =>
-        `${exports.includes("types") ? "export " : ""}type ${name} = {
+        `${exports.includes("types") ? "export " : ""}type ${name} = ${
+          type.kind === "ObjectTypeDefinition"
+            ? `{
 ${includeTypenames ? `  __typename: "${name}";\n` : ""}${
-          type.fields?.filter((f) => usage.has(f.name.value)).map((v) =>
-            `  ${v.name.value}: ${serializeType(simpleType(v.type, types))};`
-          ).join("\n")
-        }
-};`
+              type.fields?.filter((f) => usage.has(f.name.value)).map((v) =>
+                `  ${v.name.value}: ${
+                  serializeType(simpleType(v.type, types))
+                };`
+              ).join("\n")
+            }
+}`
+            : type.kind === "UnionTypeDefinition"
+            ? type.types?.map((t) => t.name.value).join(" | ")
+            : usedTypes.filter(([, t]) =>
+              t.kind === Kind.OBJECT_TYPE_DEFINITION &&
+              t.interfaces?.some((i) => i.name.value === name)
+            ).map(([name]) => name).join(" | ")
+        };`
       ).filter(filterOutputTypes),
       `export type Types = {
 ${usedTypes.map(([name]) => `  ${name}: ${rename(name)};`).join("\n")}

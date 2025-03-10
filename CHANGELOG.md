@@ -1,6 +1,8 @@
 # 0.3.1
 
+- **[feat]** Add type generation support for union and interface types.
 - **[bugfix]** Generated types handles fragments in unions.
+- **[bugfix]** Fixed require export path.
 
 # 0.3.0
 

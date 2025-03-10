@@ -1,5 +1,5 @@
 {
-  "version": "0.3.1-alpha.0",
+  "version": "0.3.1-alpha.2",
   "tasks": {
     "test": "deno test -A --watch",
     "build": "deno task build:npm && deno task build:examples",

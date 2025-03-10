@@ -93,7 +93,7 @@ await build({
     for (const key in pkg.exports) {
       pkg.exports[key] = {
         import: pkg.exports[key].import.default,
-        require: pkg.exports[key].import.default,
+        require: pkg.exports[key].require.default,
         types: pkg.exports[key].import.types,
         default: pkg.exports[key].import.default,
       };
