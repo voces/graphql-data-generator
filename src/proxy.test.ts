@@ -26,6 +26,23 @@ Deno.test("scalars > custom", () => {
   assertEquals(proxy<string>(definitions, scalars, "URL", "ok"), "ok");
 });
 
+Deno.test("scalars > list", () => {
+  assertEquals(
+    proxy(definitions, scalars, "Query.nonnullableNonnullableScalars"),
+    [],
+  );
+
+  assertEquals(
+    proxy<string[]>(
+      definitions,
+      scalars,
+      "Query.nonnullableNonnullableScalars",
+      { 1: "ok" },
+    ),
+    ["scalar-String-Query", "ok"],
+  );
+});
+
 Deno.test("objects > simple object generation", () => {
   assertEquals(
     proxy<Types["Post"]>(definitions, scalars, "Post"),
@@ -480,11 +497,17 @@ Deno.test("operations > queries > nullable scalar", () => {
   assertEquals(
     operation<Operation>(definitions, scalars, query, {
       data: { nullableScalar: "ok" },
-    }),
-    {
-      request: { query: parse(query) },
-      result: { data: { nullableScalar: "ok" } },
-    },
+    }).result.data?.nullableScalar,
+    "ok",
+  );
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { nullableScalar: "ok" },
+    }, {
+      data: { nullableScalar: null },
+    }).result.data?.nullableScalar,
+    null,
   );
 });
 
@@ -1027,23 +1050,6 @@ Deno.test("operations > retains extra top level data", async () => {
       { data: { postCreated: { title: "title" } } },
     ).extra,
     "foo",
-  );
-});
-
-Deno.test("scalars > list", () => {
-  assertEquals(
-    proxy(definitions, scalars, "Query.nonnullableNonnullableScalars"),
-    [],
-  );
-
-  assertEquals(
-    proxy<string[]>(
-      definitions,
-      scalars,
-      "Query.nonnullableNonnullableScalars",
-      { 1: "ok" },
-    ),
-    ["scalar-String-Query", "ok"],
   );
 });
 

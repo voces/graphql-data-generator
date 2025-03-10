@@ -511,6 +511,7 @@ const _proxy = <T>(
           ? undefined
           : null)) as T;
     }
+    if (patches.at(-1) === null) return null as T;
   } else type = type.type;
 
   if (type.kind === Kind.LIST_TYPE) {
@@ -854,7 +855,7 @@ const _proxy = <T>(
               definitions,
               scalars,
               `${operationKey}.${selection.name.value}`,
-              value != null ? [value] : [],
+              value !== undefined ? [value] : [],
               {
                 prev: mockPrev?.data?.[prop],
                 selectionSet: selection.selectionSet,

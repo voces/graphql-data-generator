@@ -4,6 +4,7 @@
 - **[bugfix]** Generated types handles fragments in unions.
 - **[bugfix]** Fixed require export path.
 - **[bugfix]** Fixed caching of imports that also have imports.
+- **[bugfix]** Fixed nulling out top-level fields on operations.
 
 # 0.3.0
 
