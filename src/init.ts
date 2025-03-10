@@ -26,7 +26,7 @@ globalThis.require ??= createRequire(Deno.cwd());
 const files: Record<string, string> = {};
 const loadFile = (path: string): string => {
   if (files[path]) return files[path];
-  const raw = files[path] = readFileSync(path, "utf-8");
+  const raw = readFileSync(path, "utf-8");
   const imports = Array.from(
     raw.matchAll(/#import "(.*)"/gm),
     ([, importPath]) =>
@@ -39,9 +39,9 @@ const loadFile = (path: string): string => {
         ),
       ),
   );
-  if (!imports.length) return raw;
+  if (!imports.length) return files[path] = raw;
 
-  return [raw, ...imports].join("\n\n");
+  return files[path] = [raw, ...imports].join("\n\n");
 };
 
 const getOperationContentMap: Record<
