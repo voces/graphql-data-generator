@@ -170,28 +170,35 @@ const _waitForMocks = async (
 ) => {
   for (const mock of mocks) {
     if (mock.optional || mock.error) continue;
-    await waitFor(() => {
-      if (currentSpecResult.failedExpectations.length) return;
-      if ((mock.result as jest.Mock).mock.calls.length === 0) {
-        const { name, operationType } = getOperationInfo(mock.request.query);
-        const err = new Error(
-          `Expected to have used ${operationType} ${name}${
-            mock.request.variables
-              ? ` with variables ${
-                Deno.inspect(mock.request.variables, {
-                  depth: Infinity,
-                  colors: true,
-                })
-              }`
-              : ""
-          }`,
-        );
-        if (mock.stack) {
-          err.stack = `${mock.stack}${cause ? `\nCaused by: ${cause}` : ""}`;
-        } else if (cause) err.stack = cause;
-        throw err;
-      }
-    });
+    try {
+      await waitFor(() => {
+        if ((mock.result as jest.Mock).mock.calls.length === 0) {
+          throw new Error("");
+        }
+      });
+    } catch {
+      const { name, operationType } = getOperationInfo(mock.request.query);
+      const err = new Error(
+        `Expected to have used ${operationType} ${name}${
+          mock.request.variables
+            ? ` with variables ${
+              Deno.inspect(mock.request.variables, {
+                depth: Infinity,
+                colors: true,
+              })
+            }`
+            : ""
+        }`,
+      );
+      if (mock.stack) {
+        err.stack = `${mock.stack}${cause ? `\nCaused by: ${cause}` : ""}`;
+      } else if (cause) err.stack = cause;
+      fail({
+        name: "Error",
+        message: err.message,
+        stack: err.stack,
+      });
+    }
   }
 };
 
