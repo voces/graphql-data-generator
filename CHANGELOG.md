@@ -2,6 +2,8 @@
 
 - **[Breaking]** Replaced second `offset` parameter of `waitForMocks` with an
   object that accepts an `offset` property.
+- **[Breaking]** Operations with `watch` are no longer duplicated with an
+  `optional` operation.
 - **[feat]** Added `timeout` to `waitForMocks`.
 - **[feat]** Add type generation support for union and interface types.
 - **[bugfix]** Generated types handles fragments in unions.

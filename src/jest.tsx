@@ -250,7 +250,7 @@ export const MockedProvider = (
     },
 ) => {
   const observableMocks = useMemo(() => {
-    const observableMocks = mocks.flatMap((m): ExtendedMockedResponse[] => [
+    const observableMocks = mocks.map((m) =>
       typeof m.result === "function" && "mock" in m.result ? m : {
         ...m,
         stack: m.stack,
@@ -260,27 +260,8 @@ export const MockedProvider = (
           ),
           m.result,
         ),
-      },
-      ...(m.watch
-        ? [{
-          ...m,
-          stack: m.stack,
-          result: typeof m.result === "function" && "mock" in m.result
-            ? m.result
-            : Object.assign(
-              jest.fn((vars) =>
-                typeof m.result === "function" ? m.result(vars) : m.result
-              ),
-              m.result,
-            ),
-          watch: false,
-          // TODO: this might be dependent on Apollo version or refetch method,
-          // ideally should be asserted when we can (maybe when
-          // _failRefetchWarnings is false?)
-          optional: true,
-        }]
-        : []),
-    ]);
+      }
+    );
     lastMocks = observableMocks;
     afterTest.push(() => _waitForMocks(lastMocks, { cause: renderStack }));
     return observableMocks;
