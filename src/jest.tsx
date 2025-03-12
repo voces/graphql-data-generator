@@ -166,16 +166,17 @@ const getStack = (to: Function) => {
 
 const _waitForMocks = async (
   mocks: ExtendedMockedResponse[],
-  cause?: string,
+  { cause, timeout }: { cause?: string; timeout?: number },
 ) => {
   for (const mock of mocks) {
     if (mock.optional || mock.error) continue;
     try {
       await waitFor(() => {
+        if (currentSpecResult.failedExpectations.length) return;
         if ((mock.result as jest.Mock).mock.calls.length === 0) {
           throw new Error("");
         }
-      });
+      }, { timeout });
     } catch {
       const { name, operationType } = getOperationInfo(mock.request.query);
       const err = new Error(
@@ -205,11 +206,16 @@ const _waitForMocks = async (
 /**
  * Wait for mocks to have been used.
  * @param mock If `undefined`, waits for all mocks. If a number, waits fort he first `mocks` mocks. If a string, waits for all mocks up until and including that mock.
- * @param offset If `mocks` is a string, grabs the `offset`th mock of that name (e.g., the third `getReport` mock)
+ * @param options Additional configuration options.
  */
 export const waitForMocks = async (
   mock: number | string = lastMocks.length,
-  offset = 0,
+  { timeout, offset = 0 }: {
+    /** Milliseconds to wait for each mock. */
+    timeout?: number;
+    /** If `mocks` is a string, grabs the `offset`th mock of that name (e.g., the third `getReport` mock) */
+    offset?: number;
+  } = {},
 ) => {
   if (typeof mock === "string") {
     const matches = lastMocks.map((m, i) => [m, i] as const)
@@ -224,7 +230,10 @@ export const waitForMocks = async (
     expect(matches.length).toBeGreaterThan(offset);
     mock = matches[offset][1] + 1;
   }
-  await _waitForMocks(lastMocks.slice(0, mock), getStack(waitForMocks));
+  await _waitForMocks(lastMocks.slice(0, mock), {
+    timeout,
+    cause: getStack(waitForMocks),
+  });
 };
 
 /**
@@ -273,7 +282,7 @@ export const MockedProvider = (
         : []),
     ]);
     lastMocks = observableMocks;
-    afterTest.push(() => _waitForMocks(lastMocks, renderStack));
+    afterTest.push(() => _waitForMocks(lastMocks, { cause: renderStack }));
     return observableMocks;
   }, [mocks]);
 

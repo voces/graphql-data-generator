@@ -1,11 +1,16 @@
-# 0.3.1
+# 0.4.0
 
+- **[Breaking]** Replaced second `offset` parameter of `waitForMocks` with an
+  object that accepts an `offset` property.
+- **[feat]** Added `timeout` to `waitForMocks`.
 - **[feat]** Add type generation support for union and interface types.
 - **[bugfix]** Generated types handles fragments in unions.
 - **[bugfix]** Fixed require export path.
 - **[bugfix]** Fixed caching of imports that also have imports.
 - **[bugfix]** Fixed nulling out top-level fields on operations.
 - **[bugfix]** Use `fail` instead of throwing in `waitForMocks`.
+- **[bugfix]** Added back check to skip mock usage assertion if test is already
+  failed.
 
 # 0.3.0
 
