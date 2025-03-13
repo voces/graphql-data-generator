@@ -526,6 +526,7 @@ Deno.test("query > retains extra data", () => {
     },
   });
   assertEquals((mock.result as { calls: number }).calls, 1);
+  assertEquals(mock.withAuthorId("id").extra, "foo");
 });
 
 Deno.test("mutation", async () => {

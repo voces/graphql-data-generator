@@ -254,16 +254,16 @@ export const init = <
     Object.defineProperties(obj, {
       patch: {
         value: (...patches: OperationPatch[]) => {
-          const prev = typeof obj === "function" ? obj() : obj;
           const builder = build[operation]! as (
             ...patches: OperationPatch[]
           ) => OperationMock;
-          const { result, request, error, ...rest } = prev;
+          const { result, request, ...rest } = typeof obj === "function"
+            ? obj()
+            : obj;
           return builder(
             {
               data: result.data,
               variables: request.variables,
-              error: error,
               errors: result.errors,
               ...rest,
             },
@@ -273,16 +273,16 @@ export const init = <
       },
       variables: {
         value: (variables: Patch<unknown>) => {
-          const prev = typeof obj === "function" ? obj() : obj;
           const builder = build[operation]! as (
             ...patches: OperationPatch[]
           ) => OperationMock;
-          const { result, request, error, ...rest } = prev;
+          const { result, request, ...rest } = typeof obj === "function"
+            ? obj()
+            : obj;
           const mock = builder(
             {
               data: result.data,
               variables: request.variables,
-              error: error,
               errors: result.errors,
               ...rest,
             },
@@ -301,16 +301,16 @@ export const init = <
       },
       data: {
         value: (data: Patch<unknown>) => {
-          const prev = typeof obj === "function" ? obj() : obj;
           const builder = build[operation]! as (
             ...patches: OperationPatch[]
           ) => OperationMock;
-          const { result, request, error, ...rest } = prev;
+          const { result, request, ...rest } = typeof obj === "function"
+            ? obj()
+            : obj;
           const mock = builder(
             {
               data: result.data,
               variables: request.variables,
-              error: error,
               errors: result.errors,
               ...rest,
             },
@@ -335,12 +335,14 @@ export const init = <
           [name, fn],
         ) => [name, {
           value: (...args: unknown[]) => {
-            const prev = typeof obj === "function" ? obj() : obj;
+            const { result, request, ...rest } = typeof obj === "function"
+              ? obj()
+              : obj;
             const prevInput = {
-              data: prev.result.data,
-              variables: prev.request.variables,
-              error: prev.error,
-              errors: prev.result.errors,
+              data: result.data,
+              variables: request.variables,
+              errors: result.errors,
+              ...rest,
             };
             const operationFn = fn as OperationPatch as (
               prev: SimpleOperationMock,

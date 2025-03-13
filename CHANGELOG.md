@@ -13,6 +13,7 @@
 - **[bugfix]** Use `fail` instead of throwing in `waitForMocks`.
 - **[bugfix]** Added back check to skip mock usage assertion if test is already
   failed.
+- **[bugfix]** Fixed extra not being retained with custom transforms.
 
 # 0.3.0
 

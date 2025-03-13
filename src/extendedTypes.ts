@@ -64,7 +64,7 @@ type OperationBuilderWithMock<
   Transforms,
   Extra,
 > =
-  & OperationBuilder<Data, Variables, Transforms>
+  & OperationBuilder<Data, Variables, Transforms, Extra>
   & OperationMock<Data, Variables>
   & Partial<Extra>;
 
