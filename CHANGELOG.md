@@ -1,5 +1,7 @@
 # 0.4.0
 
+- **[Breaking]** Generates `types` const is now a map from typename to maximal
+  selection set.
 - **[Breaking]** Replaced second `offset` parameter of `waitForMocks` with an
   object that accepts an `offset` property.
 - **[Breaking]** Operations with `watch` are no longer duplicated with an

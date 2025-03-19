@@ -917,9 +917,21 @@ ${includeTypenames ? `  __typename: "${name}";\n` : ""}${
       `export type Types = {
 ${usedTypes.map(([name]) => `  ${name}: ${rename(name)};`).join("\n")}
 };`,
-      `export const types = [${
-        usedTypes.map(([name]) => `"${name}"`).join(", ")
-      }] as const;`,
+      `export const types = {\n${
+        usedTypes.map(([name, type, usage]) =>
+          `  ${
+            name.match(/^[$A-Za-z_][0-9A-Za-z_$]*$/) ? name : `"${name}"`
+          }: ${
+            type.kind === "ObjectTypeDefinition"
+              ? `[${
+                type.fields?.filter((f) => usage.has(f.name.value)).map((v) =>
+                  `"${v.name.value}"`
+                ).join(", ")
+              }]`
+              : "[]"
+          }`
+        ).join(",\n")
+      },\n} as const;`,
     );
   }
 

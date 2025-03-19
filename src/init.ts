@@ -1,6 +1,16 @@
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
-import { type DocumentNode, Kind, parse } from "npm:graphql";
+import {
+  DocumentNode,
+  FieldNode,
+  InlineFragmentNode,
+  Kind,
+  NamedTypeNode,
+  ObjectTypeDefinitionNode,
+  parse,
+  SelectionSetNode,
+  TypeNode,
+} from "npm:graphql";
 import { gqlPluckFromCodeStringSync } from "npm:@graphql-tools/graphql-tag-pluck";
 
 import type {
@@ -16,7 +26,7 @@ import type {
   Patch,
   SimpleOperationMock,
 } from "./types.ts";
-import { operation, proxy, withGetDefaultPatch } from "./proxy.ts";
+import { _proxy, operation, proxy, withGetDefaultPatch } from "./proxy.ts";
 import { toObject } from "./util.ts";
 import { dirname, resolve } from "node:path";
 
@@ -80,6 +90,18 @@ const getOperationContent = (
   return getOperationContent(path, operationName);
 };
 
+// Helper: Unwraps non-null and list wrappers to get the named type.
+const getNamedType = (type: TypeNode): string =>
+  type.kind === Kind.NAMED_TYPE ? type.name.value : getNamedType(type.type);
+
+// Helper: Find a type definition in the document by name.
+const getTypeDef = (doc: DocumentNode, typeName: string) =>
+  doc.definitions.find(
+    (def) => "name" in def && def.name?.value === typeName,
+  );
+
+type Writeable<T> = { -readonly [P in keyof T]: T[P] };
+
 /**
  * Initialize the data builder.
  * @param schema The plain text of your schema.
@@ -111,7 +133,7 @@ export const init = <
   queries: { [operation in keyof Query]: string },
   mutations: { [operation in keyof Mutation]: string },
   subscriptions: { [operation in keyof Subscription]: string },
-  types: readonly (keyof Types & string)[],
+  types: { readonly [type in keyof Types]: readonly string[] },
   inputs: readonly (keyof Inputs & string)[],
   scalars: {
     [name: string]:
@@ -208,10 +230,113 @@ export const init = <
     return obj;
   };
 
-  const wrap = <T>(type: string, patches: Patch<T>[]) =>
+  const getSelectionSetMemory = new Map<string, SelectionSetNode>();
+  const getSelectionSet = (type: string): SelectionSetNode | undefined => {
+    if (getSelectionSetMemory.has(type)) {
+      return getSelectionSetMemory.get(type)!;
+    }
+    const fields = types[type];
+    if (!fields) return;
+
+    const typeDef = getTypeDef(doc, type);
+    if (!typeDef || !("fields" in typeDef)) return;
+
+    const selectionSet: SelectionSetNode = {
+      kind: Kind.SELECTION_SET,
+      selections: [],
+    };
+    getSelectionSetMemory.set(type, selectionSet);
+
+    // Build each field node.
+    selectionSet.selections = fields.map((fieldName): FieldNode => {
+      const fieldNode: Writeable<FieldNode> = {
+        kind: Kind.FIELD,
+        name: { kind: Kind.NAME, value: fieldName },
+      };
+
+      // Look for the field definition in the type definition.
+      const fieldDef = typeDef.fields?.find(
+        (f) => f.name.value === fieldName,
+      );
+      if (fieldDef) {
+        // Get the inner (named) type of the field.
+        const fieldTypeName = getNamedType(fieldDef.type);
+        const fieldTypeDef = getTypeDef(doc, fieldTypeName);
+
+        // If the field is an Object, build its selection set recursively.
+        if (
+          fieldTypeDef &&
+          fieldTypeDef.kind === Kind.OBJECT_TYPE_DEFINITION
+        ) {
+          const childSelection = getSelectionSet(fieldTypeName);
+          if (childSelection) fieldNode.selectionSet = childSelection;
+        } // If the field is an Interface, treat it like a union:
+        // find all Object types that implement this interface and build inline fragments.
+        else if (fieldTypeDef?.kind === Kind.INTERFACE_TYPE_DEFINITION) {
+          const implementingTypes = doc.definitions.filter(
+            (def): def is ObjectTypeDefinitionNode =>
+              def.kind === Kind.OBJECT_TYPE_DEFINITION &&
+              (def.interfaces?.some(
+                (iface: NamedTypeNode) => iface.name.value === fieldTypeName,
+              ) ?? false),
+          );
+          const inlineFragments = implementingTypes.map((
+            impl,
+          ): InlineFragmentNode => ({
+            kind: Kind.INLINE_FRAGMENT,
+            typeCondition: {
+              kind: Kind.NAMED_TYPE,
+              name: { kind: Kind.NAME, value: impl.name.value },
+            },
+            selectionSet: getSelectionSet(impl.name.value) ?? {
+              kind: Kind.SELECTION_SET,
+              selections: [],
+            },
+          }));
+          fieldNode.selectionSet = {
+            kind: Kind.SELECTION_SET,
+            selections: inlineFragments,
+          };
+        } // For Unions, build inline fragments for each member type.
+        else if (fieldTypeDef?.kind === Kind.UNION_TYPE_DEFINITION) {
+          const inlineFragments = fieldTypeDef.types?.map((
+            member: NamedTypeNode,
+          ): InlineFragmentNode => ({
+            kind: Kind.INLINE_FRAGMENT,
+            typeCondition: {
+              kind: Kind.NAMED_TYPE,
+              name: { kind: Kind.NAME, value: member.name.value },
+            },
+            selectionSet: getSelectionSet(member.name.value) ?? {
+              kind: Kind.SELECTION_SET,
+              selections: [],
+            },
+          })) ?? [];
+          fieldNode.selectionSet = {
+            kind: Kind.SELECTION_SET,
+            selections: inlineFragments,
+          };
+        }
+        // Scalars and enums don't require a nested selection.
+      }
+      return fieldNode;
+    });
+
+    return selectionSet;
+  };
+
+  const wrap = <T>(
+    type: string,
+    patches: Patch<T>[],
+  ) =>
     withGetDefaultPatch(
       <U>(type: string) => transforms[type]?.default as Patch<U>,
-      () => toObject(proxy<T>(doc.definitions, scalars, type, ...patches)),
+      () =>
+        toObject(
+          _proxy<T>(doc.definitions, scalars, type, patches, {
+            selectionSet: getSelectionSet(type),
+          }),
+        ),
     );
 
   const objectBuilder = <T>(type: string) =>
@@ -222,10 +347,13 @@ export const init = <
           ...patches,
         ];
       }
-      return addObjectTransforms(type, wrap(type, patches));
+      return addObjectTransforms(
+        type,
+        wrap(type, patches),
+      );
     });
 
-  for (const type of types) {
+  for (const type in types) {
     build[type as keyof Types] = objectBuilder(
       type,
     ) as FullBuild[keyof Types];
@@ -404,7 +532,7 @@ export const init = <
     const nonQueryNames: string[] = [
       ...Object.keys(mutations),
       ...Object.keys(subscriptions),
-      ...types,
+      ...Object.keys(types),
       ...inputs,
     ];
     for (const query in queries) {
@@ -418,7 +546,7 @@ export const init = <
     const nonMutationNames: string[] = [
       ...Object.keys(queries),
       ...Object.keys(subscriptions),
-      ...types,
+      ...Object.keys(types),
       ...inputs,
     ];
     for (const mutation in mutations) {
@@ -432,7 +560,7 @@ export const init = <
     const nonSubscriptionNames: string[] = [
       ...Object.keys(queries),
       ...Object.keys(mutations),
-      ...types,
+      ...Object.keys(types),
       ...inputs,
     ];
     for (const subscription in subscriptions) {

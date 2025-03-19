@@ -255,6 +255,10 @@ Deno.test("objects > interface types", () => {
   assertEquals(build.Node({ title: "Coerce" }).__typename, "Post");
 });
 
+Deno.test("objects > unused fields", () => {
+  assertEquals(Object.keys(build.UnusedHost()), ["__typename", "id"]);
+});
+
 Deno.test("inputs", () => {
   assertEquals<Inputs["CreatePostInput"]>(
     build.CreatePostInput(),

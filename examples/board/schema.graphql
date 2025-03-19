@@ -38,6 +38,11 @@ type Post implements Node {
   coauthor: User
 }
 
+type UnusedHost {
+  id: ID!
+  unused: String
+}
+
 # Union type
 union SearchResult = User | Post
 
@@ -101,6 +106,8 @@ type Query {
   queryWithInputWithNullableArray(
     inputWithNullableArray: InputWithNullableArray,
   ): Boolean
+
+  unused: UnusedHost!
 }
 
 # Mutation type

@@ -453,7 +453,7 @@ const getField = (
   }
 };
 
-const _proxy = <T>(
+export const _proxy = <T>(
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   path: string,

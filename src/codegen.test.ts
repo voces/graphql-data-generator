@@ -150,7 +150,10 @@ Deno.test("nested types", () => {
       Foo: Foo;
     };
 
-    export const types = ["Bar", "Foo"] as const;
+    export const types = {
+      Bar: ["bar"],
+      Foo: ["bar"],
+    } as const;
 
     type MyFoo = {
       myFoo: {
@@ -209,7 +212,9 @@ Deno.test("alias > query & type", () => {
       User: User;
     };
 
-    export const types = ["User"] as const;
+    export const types = {
+      User: ["id"],
+    } as const;
 
     type UserQuery = {
       getUser: {
@@ -385,7 +390,9 @@ Deno.test("exports > types", () => {
       User: User;
     };
 
-    export const types = ["User"] as const;
+    export const types = {
+      User: ["id"],
+    } as const;
 
     type getUser = {
       user: {
@@ -442,7 +449,9 @@ Deno.test("exports > operations", () => {
       User: User;
     };
 
-    export const types = ["User"] as const;
+    export const types = {
+      User: ["id"],
+    } as const;
 
     export type getUser = {
       user: {
@@ -714,7 +723,9 @@ Deno.test("typesFile > namingConvention", () => {
       WeirdCAPSOutput: WeirdCapsOutput;
     };
     
-    export const types = ["WeirdCAPSOutput"] as const;
+    export const types = {
+      WeirdCAPSOutput: ["weirdCAPSOutputField"],
+    } as const;
     
     export type Inputs = {
       WeirdCAPSInput: WeirdCapsInput;
@@ -808,7 +819,12 @@ Deno.test("importing fragments & unions", () => {
       Container: Container;
     };
 
-    export const types = ["Foo", "Bar", "Thing", "Container"] as const;
+    export const types = {
+      Foo: ["foo"],
+      Bar: ["bar"],
+      Thing: [],
+      Container: ["thing"],
+    } as const;
 
     type myThing = {
       container: {
@@ -908,7 +924,11 @@ Deno.test("exhaustive union interface types", () => {
       NodeType: NodeType;
     };
 
-    export const types = ["User", "Post", "NodeType"] as const;
+    export const types = {
+      User: ["id", "user"],
+      Post: ["id", "post"],
+      NodeType: [],
+    } as const;
 
     type myNode = {
       node: {
