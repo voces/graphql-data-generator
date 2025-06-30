@@ -70,21 +70,33 @@ const getOperationContent = (
     ];
   }
 
-  const fileContent = loadFile(path);
-
   try {
-    const sources = gqlPluckFromCodeStringSync(path, fileContent);
-    getOperationContentMap[path] = Object.fromEntries(sources.map((s) => {
-      const document = parse(s);
-      const firstOp = document.definitions.find((d) =>
-        d.kind === Kind.OPERATION_DEFINITION
-      );
-      if (!firstOp) throw new Error(`Could not find an operation in ${path}`);
-
-      return [firstOp.name?.value, document];
-    }));
+    // First try loading via require, depending on GQL loaders
+    const doc: unknown = require(
+      require.resolve(path, { paths: [Deno.cwd()] }),
+    );
+    if (
+      doc && typeof doc === "object" && "kind" in doc && doc.kind === "Document"
+    ) {
+      getOperationContentMap[path] = doc as DocumentNode;
+    }
   } catch {
-    getOperationContentMap[path] = parse(fileContent);
+    // Otherwise load it manually
+    const fileContent = loadFile(path);
+    try {
+      const sources = gqlPluckFromCodeStringSync(path, fileContent);
+      getOperationContentMap[path] = Object.fromEntries(sources.map((s) => {
+        const document = parse(s);
+        const firstOp = document.definitions.find((d) =>
+          d.kind === Kind.OPERATION_DEFINITION
+        );
+        if (!firstOp) throw new Error(`Could not find an operation in ${path}`);
+
+        return [firstOp.name?.value, document];
+      }));
+    } catch {
+      getOperationContentMap[path] = parse(fileContent);
+    }
   }
 
   return getOperationContent(path, operationName);

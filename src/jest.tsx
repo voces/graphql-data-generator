@@ -18,29 +18,38 @@ import { DocumentNode, Kind, print } from "npm:graphql";
 import { diff as jestDiff } from "npm:jest-diff";
 import "npm:@testing-library/react/dont-cleanup-after-each";
 import { cleanup } from "npm:@testing-library/react";
+import { addTypenameToDocument } from "npm:@apollo/client/utilities";
 
-type ExtendedMockedResponse = MockedResponse & {
+export type ExtendedMockedResponse = MockedResponse & {
   stack?: string;
   watch?: boolean;
   optional?: boolean;
 };
 
-declare namespace jasmine {
-  type CustomReporterResult = {
-    failedExpectations: unknown[];
-  };
+type CustomReporterResult = {
+  failedExpectations: unknown[];
+};
 
-  const getEnv: () => {
-    addReporter: (
-      props: { specStarted: (result: jasmine.CustomReporterResult) => void },
-    ) => void;
-  };
-}
+type JasmineEnv = {
+  addReporter: (
+    props: { specStarted: (result: CustomReporterResult) => void },
+  ) => void;
+};
 
-let currentSpecResult: jasmine.CustomReporterResult;
-jasmine.getEnv().addReporter({
-  specStarted: (result) => currentSpecResult = result,
-});
+let currentSpecResult: CustomReporterResult | undefined;
+(globalThis.jasmine as unknown as { getEnv: () => JasmineEnv } | undefined)
+  ?.getEnv()
+  .addReporter({
+    specStarted: (result) => currentSpecResult = result,
+  });
+
+const alreadyFailed = () => {
+  if (currentSpecResult) return currentSpecResult.failedExpectations.length > 0;
+
+  const state = expect.getState();
+  return state.assertionCalls > state.numPassingAsserts ||
+    state.suppressedErrors.length > 0;
+};
 
 let _skipCleanupAfterEach = false;
 /**
@@ -87,7 +96,7 @@ const getOperationInfo = (document: DocumentNode) => {
 const getErrorMessage = (operation: Operation, mockLink: MockLink) => {
   const operationType = getOperationType(operation);
   const key = JSON.stringify({
-    query: print(operation.query),
+    query: print(addTypenameToDocument(operation.query)),
   });
   // Bypassing private variable
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -135,7 +144,7 @@ let _failRefetchWarnings = false;
  * warnings instead of being treated as standard missing mocks.
  * This utility converts those warnings into failures and ensures watch queries
  * are installed for queries with `watch: true`. This must be set when
- * `MockProvider` is mounted.
+ * `MockedProvider` is mounted.
  *
  * This is not required on modern version of `@apollo/client`.
  */
@@ -166,13 +175,17 @@ const getStack = (to: Function) => {
 
 const _waitForMocks = async (
   mocks: ExtendedMockedResponse[],
-  { cause, timeout }: { cause?: string; timeout?: number },
+  { cause, timeout }: {
+    cause?: string;
+    timeout?: number;
+    ignoreFailed?: boolean;
+  },
 ) => {
   for (const mock of mocks) {
     if (mock.optional || mock.error) continue;
     try {
       await waitFor(() => {
-        if (currentSpecResult.failedExpectations.length) return;
+        if (alreadyFailed()) return;
         if ((mock.result as jest.Mock).mock.calls.length === 0) {
           throw new Error("");
         }
@@ -194,11 +207,10 @@ const _waitForMocks = async (
       if (mock.stack) {
         err.stack = `${mock.stack}${cause ? `\nCaused by: ${cause}` : ""}`;
       } else if (cause) err.stack = cause;
-      fail({
-        name: "Error",
-        message: err.message,
-        stack: err.stack,
-      });
+      err.stack = `${err.message}\n${
+        err.stack?.split("\n").slice(1).join("\n")
+      }`;
+      expect.getState().suppressedErrors.push(err);
     }
   }
 };
@@ -221,11 +233,11 @@ export const waitForMocks = async (
     const matches = lastMocks.map((m, i) => [m, i] as const)
       .filter(([m]) => getOperationName(m.request.query) === mock);
     if (matches.length <= offset) {
-      fail({
-        name: "Error",
-        message: `Expected mock ${mock} to have been mocked`,
-        stack: getStack(waitForMocks),
-      });
+      const err = new Error(`Expected mock ${mock} to have been mocked`);
+      Error.captureStackTrace(err, waitForMocks);
+      err.stack = err.message + "\n" +
+        err.stack?.split("\n").slice(1).join("\n");
+      throw err;
     }
     expect(matches.length).toBeGreaterThan(offset);
     mock = matches[offset][1] + 1;
@@ -234,6 +246,16 @@ export const waitForMocks = async (
     timeout,
     cause: getStack(waitForMocks),
   });
+};
+
+const isDocument = (thing: unknown): thing is DocumentNode =>
+  !!thing && typeof thing === "object" && "kind" in thing &&
+  thing.kind === "Document";
+
+const getBareOperationName = (operation: string | unknown) => {
+  if (typeof operation === "string") return operation;
+  if (isDocument(operation)) return getOperationName(operation) ?? "<unknown>";
+  return "<unknown>";
 };
 
 /**
@@ -277,23 +299,21 @@ export const MockedProvider = (
         !networkError?.message?.includes("No more mocked responses")
       ) return;
       const { message, stack: altStack } = getErrorMessage(operation, mockLink);
-      try {
-        networkError.message = message;
-        if (altStack) {
-          networkError.stack = renderStack
-            ? `${altStack}\nCaused By: ${renderStack}`
-            : altStack;
-        } else if (renderStack) networkError.stack = renderStack;
-        fail({ name: "Error", message, stack: networkError.stack });
-      } catch {
-        // fail both throws and marks the test as failed in jest; we only need the latter
-      }
+      networkError.message = message;
+      if (altStack) {
+        networkError.stack = renderStack
+          ? `${altStack}\nCaused By: ${renderStack}`
+          : altStack;
+      } else if (renderStack) networkError.stack = renderStack;
+      networkError.stack = message + "\n" +
+        networkError.stack?.split("\n").slice(1).join("\n");
+      expect.getState().suppressedErrors.push(networkError);
     });
 
     return ApolloLink.from([
       errorLoggingLink,
-      mockLink,
       ...(passedLink ? [passedLink] : []),
+      mockLink,
     ]);
   }, [observableMocks, renderStack]);
 
@@ -302,19 +322,17 @@ export const MockedProvider = (
     console.warn = (message, operation, ...etc) => {
       if (
         typeof message !== "string" ||
-        !message.match(/Unknown query named.*refetchQueries/)
+        !message.match(/Unknown query.*refetchQueries/)
       ) return oldWarn(message, operation, ...etc);
 
-      try {
-        fail({
-          name: "Error",
-          message:
-            `Expected query ${operation} requested in refetchQueries options.include array to have been mocked`,
-          stack: renderStack,
-        });
-      } catch {
-        // eat
-      }
+      const error = new Error(
+        `Expected query ${
+          getBareOperationName(operation)
+        } requested in refetchQueries options.include array to have been mocked`,
+      );
+      error.stack = error.message + "\n" +
+        renderStack?.split("\n").slice(1).join("\n");
+      expect.getState().suppressedErrors.push(error);
     };
     afterTest.push(() => {
       console.warn = oldWarn;

@@ -907,6 +907,17 @@ Deno.test("operations > queries > error", () => {
   );
 });
 
+Deno.test("operations > queries > prev error preserved", () => {
+  const query = "query Foo { nonnullableScalar }";
+  type Operation = { data: { nonnullableScalar: string }; error: Error };
+  const error = new Error("oops");
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, { error }, {}),
+    { request: { query: parse(query) }, result: {}, error },
+  );
+});
+
 Deno.test("operations > queries > errors", () => {
   const query = "query Foo { nonnullableScalar }";
   type Operation = { data: { nonnullableScalar: string } };
@@ -919,6 +930,23 @@ Deno.test("operations > queries > errors", () => {
       result: {
         // TODO: Should allow and default to null data if errors present, unless
         // patched in
+        data: { nonnullableScalar: "scalar-String-Query" },
+        errors: [error],
+      },
+    },
+  );
+});
+
+Deno.test("operations > queries > prev errors preserved", () => {
+  const query = "query Foo { nonnullableScalar }";
+  type Operation = { data: { nonnullableScalar: string } };
+  const error = new GraphQLError("oops");
+
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, { errors: [error] }, {}),
+    {
+      request: { query: parse(query) },
+      result: {
         data: { nonnullableScalar: "scalar-String-Query" },
         errors: [error],
       },

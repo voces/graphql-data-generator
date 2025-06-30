@@ -69,7 +69,7 @@ const CREATE_POST = gql(
   await Deno.readTextFile("examples/board/CreatePost.gql"),
 );
 
-it("MockProvider smoke", () => {
+it("MockedProvider smoke", () => {
   const Component = () => {
     useQuery(GET_USERS);
     useQuery(GET_USER_POSTS, { variables: { id: "user-1" } });

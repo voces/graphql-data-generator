@@ -745,6 +745,41 @@ Deno.test("typesFile > namingConvention", () => {
   );
 });
 
+Deno.test("typesFile > omitOperationSuffix", () => {
+  assertEquals(
+    codegen(
+      `
+      type Query {
+        myQuery: Boolean!
+      }
+      `,
+      [{
+        path: "MyQuery.gql",
+        content: `
+        query MyQuery {
+          myQuery
+        }
+        `,
+      }],
+      { typesFile: "some/file.ts", omitOperationSuffix: true },
+    ),
+    trimIndent(`
+    import {
+      MyQuery,
+    } from "some/file.ts";
+
+    export type Query = {
+      MyQuery: { data: MyQuery; };
+    };
+
+    export const queries = {
+      MyQuery: "MyQuery.gql",
+    };
+
+    `),
+  );
+});
+
 Deno.test("importing fragments & unions", () => {
   assertEquals(
     codegen(

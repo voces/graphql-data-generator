@@ -8,6 +8,7 @@ tests.
 
 - [Example](#example-setting-up-a-builder-and-building-objects)
 - [CLI options](#cli-options)
+- [@graphql-codegen plugin](#graphql-codegen-plugin)
 - [Patches](#patches)
 - [Transforms](#transforms)
 - [Testing](#testing)
@@ -278,9 +279,37 @@ be helpful to disable asserting all requests are mocked. A helper,
 `allowMissingMocks`, exists to disable these assertions and can be called before
 any tests.
 
+### Issues
+
+#### Refetch warnings
+
 If you are using an old version of `@apollo/client`, missing refetch requests
 will emit warnings instead of errors. You can use `failRefetchWarnings` to
 convert these warnings to errors.
+
+#### Early unmounts
+
+`@testing-library/react` automatically registers an `afterEach` hook to clean up
+the DOM after each test. Similarly, `graphql-data-generator` adds its own
+`afterEach` hook to verify that all mocks are consumed by the end of the test.
+
+This can lead to unexpected errors or noisy logs if the DOM is unmounted before
+`graphql-data-generator` runs its checks.
+
+To avoid this, `graphql-data-generator` disables `@testing-library/react`'s
+cleanup by default — **but only if it is loaded first**. If you can’t guarantee
+the load order, you should manually disable the automatic cleanup:
+
+```ts
+import "npm:@testing-library/react/dont-cleanup-after-each";
+```
+
+If instead you want to disable `graphql-data-generator`'s cleanup behavior,
+call:
+
+```ts
+import { skipCleanupAfterEach } from "graphql-data-generator";
+```
 
 ## Extra
 

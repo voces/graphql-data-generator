@@ -2,7 +2,6 @@ import { readFile } from "node:fs";
 import fg from "npm:fast-glob";
 import { parseArgs } from "node:util";
 import { codegen, loadFiles } from "./codegen.ts";
-import { formatCode } from "./util.ts";
 import process from "node:process";
 
 (async () => {
@@ -101,14 +100,14 @@ import process from "node:process";
   }
 
   try {
-    const file = banner + await formatCode(codegen(schema, operations, {
+    const file = banner + codegen(schema, operations, {
       enums: args.enums,
       includeTypenames: !args.notypenames,
       scalars,
       exports,
       typesFile: args.typesFile,
       namingConvention: args.namingConvention,
-    }));
+    });
 
     if (args.outfile) await Deno.writeTextFile(args.outfile, file);
     else console.log(file);

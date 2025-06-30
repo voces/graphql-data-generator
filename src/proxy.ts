@@ -742,10 +742,9 @@ export const _proxy = <T>(
       };
 
       const mockPrev = prev as Mock | undefined;
-      const { variables: _1, data: _2, error: _3, errors: _4, ...prevExtra } =
-        mockPrev ?? {};
+      const { variables: _1, data: _2, ...prevExtra } = mockPrev ?? {};
       const mockPatch = patch as Patch<Mock> | undefined;
-      const { variables: _5, data: _6, error: _7, errors: _8, ...patchExtra } =
+      const { variables: _3, data: _4, error: _5, errors: _6, ...patchExtra } =
         mockPatch ?? {};
 
       const mock: Mock = { ...prevExtra, ...patchExtra, data: null };

@@ -6,8 +6,13 @@
   object that accepts an `offset` property.
 - **[Breaking]** Operations with `watch` are no longer duplicated with an
   `optional` operation.
+- **[Breaking]** Passed links to `MockedProvider` are place between error link
+  and mock link.
+- **[Breaking]** Removed `formatCode`. Users can use their own formatter.
+- **[Breaking]** Replaced `fail` calls with throws to append a suppressed error.
 - **[feat]** Added `timeout` to `waitForMocks`.
 - **[feat]** Add type generation support for union and interface types.
+- **[feat]** Added `omitOperationSuffix` to `codegen`.
 - **[bugfix]** Generated types handles fragments in unions.
 - **[bugfix]** Fixed require export path.
 - **[bugfix]** Fixed caching of imports that also have imports.
@@ -16,18 +21,22 @@
 - **[bugfix]** Added back check to skip mock usage assertion if test is already
   failed.
 - **[bugfix]** Fixed extra not being retained with custom transforms.
+- **[bugfix]** `loadFiles`, used by codegen, sorts returned operations by path.
+- **[bugfix]** Made `/jest` file compatible with `jest-circus`.
+- **[bugfix]** Added support when automatic `__typename` is disabled.
+- **[bugfix]** Added support for `Document`s in `refetchQueries`.
 
 # 0.3.0
 
 - **[Breaking]** Added a universal `patch` transform for built operations, which
   is now automatically applied to all operations.
-- **[feat]** Introduced a new `MockProvider` to improve error messaging for
+- **[feat]** Introduced a new `MockedProvider` to improve error messaging for
   missing mocks and to assert on unused mocks. Also added configuration options:
   `skipCleanupAfterEach`, `failRefetchWarnings`, `allowMissingMocks`, and
   `waitForMocks`.
 - **[feat]** Added a new `stack` property to `OperationMock`, automatically set
   during operation creation. Additionally, introduced `watch` and `optional`
-  properties for the new `MockProvider` component.
+  properties for the new `MockedProvider` component.
 - **[feat]** Exposed `OperationMock` and `operation` as exports.
 - **[feat]** Added a `clear` export to support setting nullable input fields to
   `undefined`.

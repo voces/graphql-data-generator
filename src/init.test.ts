@@ -1,4 +1,4 @@
-import { Kind, parse } from "npm:graphql";
+import { GraphQLError, Kind, parse } from "npm:graphql";
 import { assertEquals } from "jsr:@std/assert";
 import {
   type Inputs,
@@ -531,6 +531,14 @@ Deno.test("query > retains extra data", () => {
   });
   assertEquals((mock.result as { calls: number }).calls, 1);
   assertEquals(mock.withAuthorId("id").extra, "foo");
+});
+
+Deno.test("query > errors returned as is", () => {
+  const error = new Error("Oops");
+  const errors = [new GraphQLError("Oops")];
+  const mock = build.CreatePost({ error, errors });
+  assertEquals(mock.error, error);
+  assertEquals(mock.result.errors, errors);
 });
 
 Deno.test("mutation", async () => {

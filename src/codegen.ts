@@ -553,7 +553,8 @@ export const codegen = (
     includeTypenames = true,
     exports = [],
     typesFile,
-    namingConvention = "keep",
+    namingConvention,
+    omitOperationSuffix = !typesFile,
   }: {
     enums?: string;
     scalars?: Record<string, string | undefined>;
@@ -561,10 +562,11 @@ export const codegen = (
     exports?: ("types" | "operations")[];
     typesFile?: string;
     namingConvention?: NamingConvention;
+    omitOperationSuffix?: boolean;
   } = {},
 ): string => {
-  const rename = typesFile
-    ? convertFactory({ namingConvention })
+  const rename = namingConvention || typesFile
+    ? convertFactory({ namingConvention: namingConvention ?? "keep" })
     : <T>(v: T) => v;
 
   const schemaDoc = parse(
@@ -723,7 +725,7 @@ export const codegen = (
 
   const operationDataName = (operation: Operation, type: string) => {
     const name = operation.name;
-    if (inputs[name] || types[name] || typesFile) {
+    if (inputs[name] || types[name] || !omitOperationSuffix) {
       return rename(`${name}${type[0].toUpperCase()}${type.slice(1)}`);
     }
     for (const key in operations) {
@@ -1021,6 +1023,8 @@ export const loadFiles = async (
   }
   return [
     await readFile(schemaPath, "utf-8"),
-    await Promise.all(operationPromises),
+    (await Promise.all(operationPromises)).sort((a, b) =>
+      a.path.localeCompare(b.path)
+    ),
   ];
 };
