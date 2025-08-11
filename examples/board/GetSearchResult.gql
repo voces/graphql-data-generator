@@ -1,0 +1,12 @@
+query GetSearchResult($id: ID!) {
+  searchResult(id: $ID) {
+    result {
+      ... on User {
+        id
+      }
+      ... on Post {
+        id
+      }
+    }
+  }
+}

@@ -46,6 +46,10 @@ type UnusedHost {
 # Union type
 union SearchResult = User | Post
 
+type WrappedSearchResult {
+  result: SearchResult!
+}
+
 # Input types for mutations
 input CreateUserInput {
   name: String!
@@ -83,6 +87,7 @@ type Query {
   posts: [Post!]!
   search(term: String!): [SearchResult!]!
   node(id: ID!): Node!
+  searchResult(id: ID!): WrappedSearchResult!
 
   nonnullableScalar: String!
   nullableScalar: String

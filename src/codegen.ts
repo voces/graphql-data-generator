@@ -38,6 +38,7 @@ type SerializableType =
     optional: boolean;
     nonExhaustive?: string[];
   }
+  | { kind: "Union"; value: SerializableType[]; optional: boolean }
   | { kind: "StringLiteral"; value: string; optional: boolean };
 
 const getType = (
@@ -84,16 +85,28 @@ const getType = (
       ).reduce(
         (union, [name, value, group]) => {
           group ??= type.name.value;
+          // Extract the actual type name from compound group names (e.g., "User:DelegationSubject" -> "DelegationSubject")
+          const actualTypeName = group.includes(":")
+            ? group.split(":").pop()!
+            : group;
+
           if (!union[group]) {
             union[group] = {};
+            const shouldIncludeTypename = props.includeTypenames &&
+              props.definitions[actualTypeName]?.[0].kind ===
+                "ObjectTypeDefinition";
+
             Object.defineProperty(union[group], "__typename", {
-              enumerable: props.includeTypenames &&
-                props.definitions[group]?.[0].kind === "ObjectTypeDefinition",
-              value: { kind: "StringLiteral", value: group, optional: false },
+              enumerable: shouldIncludeTypename,
+              value: {
+                kind: "StringLiteral",
+                value: actualTypeName,
+                optional: false,
+              },
             });
           }
           union[group]![name] = value;
-          const def = props.definitions[group];
+          const def = props.definitions[actualTypeName];
           if (def) {
             if (implementations.length) {
               for (const implementation of implementations) {
@@ -141,9 +154,14 @@ const getType = (
       }
 
       const nonExhaustive = implementations
-        .filter((o) => !(o[0].name.value in groupedValues)).map((o) =>
-          o[0].name.value
-        );
+        .filter((o) => {
+          const typeName = o[0].name.value;
+          // Check if this type is covered either directly or in compound groups
+          return !(typeName in groupedValues) &&
+            !Object.keys(groupedValues).some((key) =>
+              key.includes(":") && key.endsWith(":" + typeName)
+            );
+        }).map((o) => o[0].name.value);
 
       return {
         kind: "Object",
@@ -193,7 +211,9 @@ const getSelectionsType = (
         const selectionType = definitions[name];
 
         if (!selectionType) {
-          throw new Error(`Could not find type '${selection.name.value}'`);
+          throw new Error(
+            `Could not find type '${selection.name.value}' in '${name}'`,
+          );
         }
 
         switch (selectionType[0].kind) {
@@ -282,6 +302,7 @@ const getSelectionsType = (
             `Could not find fragment '${selection.name.value}' in '${name}'`,
           );
         }
+        // Fragment is automatically considered used
         selectionTypes.push(
           ...getSelectionsType(
             fragment.typeCondition.name.value,
@@ -291,8 +312,12 @@ const getSelectionsType = (
             references,
             includeTypenames,
           ).map((
-            [name, type],
-          ): SelectionType => [name, type, fragment.typeCondition.name.value]),
+            [name, type, group],
+          ): SelectionType => [
+            name,
+            type,
+            group || fragment.typeCondition.name.value,
+          ]),
         );
         break;
       }
@@ -426,6 +451,9 @@ const serializeType = (
         ].filter(Boolean).join(" & ")
       }${type.optional ? " | null" : ""}`;
     }
+    case "Union":
+      return type.value.map(member => serializeType(member, variables, depth)).join(" | ") + 
+        (type.optional ? " | null" : "");
     case "StringLiteral":
       return `"${type.value}"`;
   }
@@ -496,6 +524,11 @@ const fillOutInput = (
         references,
       );
     }
+    case "Union":
+      return {
+        ...input,
+        value: input.value.map(member => fillOutInput(member, inputs, references))
+      };
     case "StringLiteral":
       return input;
   }
@@ -652,16 +685,9 @@ export const codegen = (
       case "InterfaceTypeDefinition":
         types[definition.name.value] = [definition, new Set()];
         break;
-      case "UnionTypeDefinition": {
-        const prev = types[definition.name.value];
-        if (prev?.[0].kind === "UnionTypeDefinition") {
-          types[definition.name.value] = [{
-            ...prev[0],
-            types: [...(prev[0].types ?? []), ...(definition.types ?? [])],
-          }, prev[1]];
-        } else types[definition.name.value] = [definition, new Set()];
+      case "UnionTypeDefinition":
+        types[definition.name.value] = [definition, new Set()];
         break;
-      }
       case "EnumTypeDefinition":
         if (!references[definition.name.value]) {
           references[definition.name.value] = [definition, false];
@@ -935,6 +961,165 @@ ${usedTypes.map(([name]) => `  ${name}: ${rename(name)};`).join("\n")}
         ).join(",\n")
       },\n} as const;`,
     );
+  }
+
+  // Generate types for fragments
+  const fragmentTypes = Object.entries(fragments).map(([fragmentName, fragment]) => {
+    const fragmentSelections = getSelectionsType(
+      fragment.typeCondition.name.value,
+      fragment.selectionSet.selections,
+      types,
+      fragments,
+      references,
+      includeTypenames,
+    );
+
+    // Check if fragment is on a union type by looking for grouped selections (inline fragments)
+    const groupedSelections = new Map<string | undefined, [string, SerializableType][]>();
+    
+    for (const [name, type, group] of fragmentSelections) {
+      if (!groupedSelections.has(group)) {
+        groupedSelections.set(group, []);
+      }
+      groupedSelections.get(group)!.push([name, type]);
+    }
+
+    // If we have multiple groups, this is a union fragment
+    const hasMultipleGroups = groupedSelections.size > 1 || 
+      (groupedSelections.size === 1 && !groupedSelections.has(undefined));
+
+    if (hasMultipleGroups) {
+      // Generate discriminated union for union fragments
+      const unionMembers: SerializableType[] = [];
+      
+      for (const [group, selections] of groupedSelections) {
+        if (group) {
+          // This is an inline fragment group - create an object type for it
+          const memberFields = selections.reduce(
+            (fields, [name, type]) => {
+              fields[name] = type;
+              return fields;
+            },
+            {} as Record<string, SerializableType>
+          );
+
+          // Add __typename for the specific union member type
+          if (includeTypenames) {
+            Object.defineProperty(memberFields, "__typename", {
+              enumerable: true,
+              value: {
+                kind: "StringLiteral",
+                value: group.split(':')[0], // Handle nested groups
+                optional: false,
+              },
+            });
+          }
+
+          unionMembers.push({
+            kind: "Object" as const,
+            value: memberFields,
+            optional: false,
+          });
+        } else {
+          // Fields without group (shouldn't happen in union fragments, but handle gracefully)
+          const sharedFields = selections.reduce(
+            (fields, [name, type]) => {
+              fields[name] = type;
+              return fields;
+            },
+            {} as Record<string, SerializableType>
+          );
+
+          if (Object.keys(sharedFields).length > 0) {
+            unionMembers.push({
+              kind: "Object" as const,
+              value: sharedFields,
+              optional: false,
+            });
+          }
+        }
+      }
+
+      return [
+        fragmentName,
+        {
+          kind: "Union" as const,
+          value: unionMembers,
+          optional: false,
+        } as SerializableType,
+        [...new Set(fragmentSelections.map(([name]) => name))]
+      ] as const;
+    } else {
+      // Regular object fragment (not on union type)
+      const fragmentFields = fragmentSelections.reduce(
+        (fields, [name, type]) => {
+          fields[name] = type;
+          return fields;
+        },
+        {} as Record<string, SerializableType>
+      );
+
+      // Add __typename for object types  
+      const baseTypeDef = types[fragment.typeCondition.name.value];
+      if (includeTypenames && baseTypeDef?.[0].kind === "ObjectTypeDefinition") {
+        Object.defineProperty(fragmentFields, "__typename", {
+          enumerable: true,
+          value: {
+            kind: "StringLiteral",
+            value: fragment.typeCondition.name.value,
+            optional: false,
+          },
+        });
+      }
+
+      return [
+        fragmentName,
+        {
+          kind: "Object" as const,
+          value: fragmentFields,
+          optional: false,
+        } as SerializableType,
+        [...new Set(fragmentSelections.map(([name]) => name))]
+      ] as const;
+    }
+  });
+
+  if (fragmentTypes.length) {
+    serializedTypes.unshift(
+      ...fragmentTypes.map(([name, type, _fields]) =>
+        `${exports.includes("types") ? "export " : ""}type ${name} = ${
+          serializeType(type, false)
+        };`
+      ).filter(filterOutputTypes)
+    );
+
+    // Update Types export to include fragments
+    const typesIndex = serializedTypes.findIndex(line => line?.startsWith("export type Types = {"));
+    if (typesIndex !== -1) {
+      const existingTypesExport = serializedTypes[typesIndex]!;
+      const updatedTypesExport = existingTypesExport.replace(
+        "export type Types = {",
+        `export type Types = {
+${fragmentTypes.map(([name]) => `  ${name}: ${name};`).join("\n")}${usedTypes.length ? "\n" : ""}`
+      );
+      serializedTypes[typesIndex] = updatedTypesExport;
+    }
+
+    // Update types const export to include fragments  
+    const typesConstIndex = serializedTypes.findIndex(line => line?.startsWith("export const types = {"));
+    if (typesConstIndex !== -1) {
+      const existingTypesConstExport = serializedTypes[typesConstIndex]!;
+      const fragmentTypesConst = fragmentTypes.map(([name, , fields]) =>
+        `  ${name}: [${fields.map(f => `"${f}"`).join(", ")}]`
+      ).join(",\n");
+      
+      const updatedTypesConstExport = existingTypesConstExport.replace(
+        "export const types = {",
+        `export const types = {
+${fragmentTypesConst}${usedTypes.length && fragmentTypes.length ? "," : ""}${usedTypes.length ? "\n" : ""}`
+      );
+      serializedTypes[typesConstIndex] = updatedTypesConstExport;
+    }
   }
 
   const usedReferences = Object.values(references).filter((r) => r[1]).map(

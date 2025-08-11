@@ -1,8 +1,10 @@
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import {
+  DefinitionNode,
   DocumentNode,
   FieldNode,
+  FragmentDefinitionNode,
   InlineFragmentNode,
   Kind,
   NamedTypeNode,
@@ -26,7 +28,7 @@ import type {
   Patch,
   SimpleOperationMock,
 } from "./types.ts";
-import { _proxy, operation, proxy, withGetDefaultPatch } from "./proxy.ts";
+import { _proxy, operation, proxy as _proxy_unused, withGetDefaultPatch } from "./proxy.ts";
 import { toObject } from "./util.ts";
 import { dirname, resolve } from "node:path";
 
@@ -107,8 +109,8 @@ const getNamedType = (type: TypeNode): string =>
   type.kind === Kind.NAMED_TYPE ? type.name.value : getNamedType(type.type);
 
 // Helper: Find a type definition in the document by name.
-const getTypeDef = (doc: DocumentNode, typeName: string) =>
-  doc.definitions.find(
+const getTypeDef = (definitions: readonly DefinitionNode[], typeName: string) =>
+  definitions.find(
     (def) => "name" in def && def.name?.value === typeName,
   );
 
@@ -185,6 +187,38 @@ export const init = <
   ) => Transforms,
 ): Build<Query, Mutation, Subscription, Types, Inputs, Transforms, Extra> => {
   const doc = parse(schema);
+  
+  // Collect all fragment definitions from operation files
+  const fragmentDefinitions: FragmentDefinitionNode[] = [];
+  const collectFragments = (filePath: string, operationName?: string) => {
+    try {
+      // If we have an operation name, use it; otherwise try to parse the file directly
+      let document: DocumentNode;
+      if (operationName) {
+        document = getOperationContent(filePath, operationName);
+      } else {
+        // Parse the file directly to get all definitions including fragments
+        const fileContent = loadFile(filePath);
+        document = parse(fileContent);
+      }
+      
+      fragmentDefinitions.push(
+        ...document.definitions.filter((def): def is FragmentDefinitionNode => 
+          def.kind === Kind.FRAGMENT_DEFINITION
+        )
+      );
+    } catch {
+      // Ignore files that can't be parsed
+    }
+  };
+  
+  // Collect fragments from all operation files (parse entire files to get all fragments)
+  Object.values(queries).forEach(path => collectFragments(path));
+  Object.values(mutations).forEach(path => collectFragments(path));
+  Object.values(subscriptions).forEach(path => collectFragments(path));
+  
+  // Combine schema definitions with fragment definitions
+  const allDefinitions = [...doc.definitions, ...fragmentDefinitions];
 
   type FullBuild = Build<
     Query,
@@ -250,7 +284,7 @@ export const init = <
     const fields = types[type];
     if (!fields) return;
 
-    const typeDef = getTypeDef(doc, type);
+    const typeDef = getTypeDef(allDefinitions, type);
     if (!typeDef || !("fields" in typeDef)) return;
 
     const selectionSet: SelectionSetNode = {
@@ -273,7 +307,7 @@ export const init = <
       if (fieldDef) {
         // Get the inner (named) type of the field.
         const fieldTypeName = getNamedType(fieldDef.type);
-        const fieldTypeDef = getTypeDef(doc, fieldTypeName);
+        const fieldTypeDef = getTypeDef(allDefinitions, fieldTypeName);
 
         // If the field is an Object, build its selection set recursively.
         if (
@@ -285,7 +319,7 @@ export const init = <
         } // If the field is an Interface, treat it like a union:
         // find all Object types that implement this interface and build inline fragments.
         else if (fieldTypeDef?.kind === Kind.INTERFACE_TYPE_DEFINITION) {
-          const implementingTypes = doc.definitions.filter(
+          const implementingTypes = allDefinitions.filter(
             (def): def is ObjectTypeDefinitionNode =>
               def.kind === Kind.OBJECT_TYPE_DEFINITION &&
               (def.interfaces?.some(
@@ -345,7 +379,7 @@ export const init = <
       <U>(type: string) => transforms[type]?.default as Patch<U>,
       () =>
         toObject(
-          _proxy<T>(doc.definitions, scalars, type, patches, {
+          _proxy<T>(allDefinitions, scalars, type, patches, {
             selectionSet: getSelectionSet(type),
           }),
         ),
@@ -520,7 +554,7 @@ export const init = <
         <U>(type: string) => transforms[type]?.default as Patch<U>,
         () => {
           const { request: { query: parsedQuery, ...request }, ...raw } =
-            operation(doc.definitions, scalars, query, ...patches);
+            operation(allDefinitions, scalars, query, ...patches);
           const mock = toObject({
             request: { ...request },
             ...raw,

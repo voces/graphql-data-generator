@@ -1,5 +1,5 @@
 import { GraphQLError, Kind, parse } from "npm:graphql";
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
 import {
   type Inputs,
   inputs,
@@ -246,7 +246,17 @@ Deno.test("objects > default values in nullable props", () => {
 });
 
 Deno.test("objects > union types", () => {
+  const build = init<Query, Mutation, Subscription, Types, Inputs>(
+    schema,
+    queries,
+    mutations,
+    subscriptions,
+    types,
+    inputs,
+    scalars,
+  )(() => ({ User: { default: { name: "Tim" } } }));
   assertEquals(build.SearchResult().__typename, "User");
+  assertEquals(build.SearchResult().name, "Tim");
   assertEquals(build.SearchResult({ title: "Coerce" }).__typename, "Post");
 });
 
@@ -603,4 +613,88 @@ Deno.test("subscription", async () => {
       },
     },
   );
+});
+
+Deno.test("fragments", () => {
+  // Create a build system that includes fragments with default and custom transforms
+  const buildWithFragments = init<
+    Query,
+    Mutation,
+    Subscription,
+    Types & { NodeFragment: { __typename: string; id: string } }, // Add NodeFragment type
+    Inputs
+  >(
+    schema,
+    queries,
+    mutations,
+    subscriptions,
+    // Add NodeFragment to types with the fields it contains
+    { ...types, NodeFragment: ["__typename", "id"] },
+    inputs,
+    scalars,
+  )(() => ({
+    // Define transforms for NodeFragment
+    NodeFragment: {
+      // Default transform applied to all NodeFragment instances
+      default: { id: "default-fragment-id" },
+      
+      // Custom transform method
+      withCustomId: (_prev: unknown, customId: string) => ({
+        id: `custom-${customId}`,
+      }),
+      
+      // Another custom transform
+      asPost: () => ({
+        __typename: "Post",
+        id: "post-fragment-id",
+      }),
+    },
+  }));
+
+  // Test that NodeFragment builder is available
+  assertEquals("NodeFragment" in buildWithFragments, true);
+  
+  // Test basic fragment with default transform
+  const nodeFragment = buildWithFragments.NodeFragment();
+  
+  assertObjectMatch(nodeFragment, {
+    __typename: "User", // Resolves to User as concrete type
+    id: "default-fragment-id", // Uses default transform
+  });
+
+  // Test with manual patch (overrides default)
+  const patchedFragment = buildWithFragments.NodeFragment({ 
+    id: "manual-override" 
+  });
+  
+  assertObjectMatch(patchedFragment, {
+    __typename: "User",
+    id: "manual-override",
+  });
+
+  // Test custom transform method
+  const customFragment = buildWithFragments.NodeFragment().withCustomId("test123");
+  
+  assertObjectMatch(customFragment, {
+    __typename: "User",
+    id: "custom-test123",
+  });
+
+  // Test another custom transform that changes typename
+  const postFragment = buildWithFragments.NodeFragment().asPost();
+  
+  assertObjectMatch(postFragment, {
+    __typename: "Post",
+    id: "post-fragment-id",
+  });
+
+  // Test chaining transforms
+  const chainedFragment = buildWithFragments.NodeFragment()
+    .withCustomId("chained")
+    .patch({ __typename: "Post" });
+    
+  assertObjectMatch(chainedFragment, {
+    __typename: "Post", 
+    id: "custom-chained",
+  });
 });

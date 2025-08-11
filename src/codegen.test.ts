@@ -830,6 +830,11 @@ Deno.test("importing fragments & unions", () => {
     trimIndent(`
     type Boolean = boolean;
 
+    type FooFragment = {
+      foo: Boolean;
+      __typename: "Foo";
+    };
+
     type Foo = {
       __typename: "Foo";
       foo: Boolean;
@@ -848,6 +853,8 @@ Deno.test("importing fragments & unions", () => {
     };
 
     export type Types = {
+      FooFragment: FooFragment;
+
       Foo: Foo;
       Bar: Bar;
       Thing: Thing;
@@ -855,6 +862,8 @@ Deno.test("importing fragments & unions", () => {
     };
 
     export const types = {
+      FooFragment: ["foo"],
+
       Foo: ["foo"],
       Bar: ["bar"],
       Thing: [],
@@ -880,6 +889,202 @@ Deno.test("importing fragments & unions", () => {
 
     export const queries = {
       myThing: "query.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("deeply nested union merging issue", () => {
+  assertEquals(
+    codegen(
+      `
+      union Content = TextContent
+      union Content = ImageContent
+
+      type TextContent {
+        id: ID!
+        text: String!
+      }
+
+      type ImageContent {
+        id: ID!
+        url: String!
+      }
+
+      type Post {
+        id: ID!
+        title: String!
+        contentList: [Content!]!
+      }
+
+      type Query {
+        posts: [Post!]!
+      }
+      `,
+      [{
+        path: "posts.gql",
+        content: `
+        query GetPosts {
+          posts {
+            id
+            title
+            contentList {
+              ... on TextContent {
+                id
+                text
+              }
+              ... on ImageContent {
+                id
+                url
+              }
+            }
+          }
+        }
+        `,
+      }],
+    ),
+    trimIndent(`
+    type String = string;
+
+    type ID = string;
+
+    type Content = ImageContent;
+
+    type ImageContent = {
+      __typename: "ImageContent";
+      id: ID;
+      url: String;
+    };
+
+    type Post = {
+      __typename: "Post";
+      id: ID;
+      title: String;
+      contentList: Content[];
+    };
+
+    export type Types = {
+      Content: Content;
+      ImageContent: ImageContent;
+      Post: Post;
+    };
+
+    export const types = {
+      Content: [],
+      ImageContent: ["id", "url"],
+      Post: ["id", "title", "contentList"],
+    } as const;
+
+    type GetPosts = {
+      posts: {
+        __typename: "Post";
+        id: ID;
+        title: String;
+        contentList: ({
+          __typename: "TextContent";
+          id: ID;
+          text: String;
+        } | {
+          __typename: "ImageContent";
+          id: ID;
+          url: String;
+        })[];
+      }[];
+    };
+
+    export type Query = {
+      GetPosts: { data: GetPosts; };
+    };
+
+    export const queries = {
+      GetPosts: "posts.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("union type merging prevention", () => {
+  assertEquals(
+    codegen(
+      `
+      union SearchResult = User
+      union SearchResult = Post
+
+      type User {
+        id: ID!
+        name: String!
+      }
+
+      type Post {
+        id: ID!
+        title: String!
+      }
+
+      type Query {
+        search: SearchResult!
+      }
+      `,
+      [{
+        path: "search.gql",
+        content: `
+        query Search {
+          search {
+            ... on User {
+              id
+              name
+            }
+            ... on Post {
+              id
+              title
+            }
+          }
+        }
+        `,
+      }],
+    ),
+    trimIndent(`
+    type String = string;
+
+    type ID = string;
+
+    type SearchResult = Post;
+
+    type Post = {
+      __typename: "Post";
+      id: ID;
+      title: String;
+    };
+
+    export type Types = {
+      SearchResult: SearchResult;
+      Post: Post;
+    };
+
+    export const types = {
+      SearchResult: [],
+      Post: ["id", "title"],
+    } as const;
+
+    type Search = {
+      search: {
+        __typename: "User";
+        id: ID;
+        name: String;
+      } | {
+        __typename: "Post";
+        id: ID;
+        title: String;
+      };
+    };
+
+    export type Query = {
+      Search: { data: Search; };
+    };
+
+    export const queries = {
+      Search: "search.gql",
     };
 
     `),
@@ -939,6 +1144,10 @@ Deno.test("exhaustive union interface types", () => {
     trimIndent(`
     type String = string;
 
+    type NodeFragment = {
+      id: String;
+    };
+
     type User = {
       __typename: "User";
       id: String;
@@ -954,12 +1163,16 @@ Deno.test("exhaustive union interface types", () => {
     type NodeType = User | Post;
 
     export type Types = {
+      NodeFragment: NodeFragment;
+
       User: User;
       Post: Post;
       NodeType: NodeType;
     };
 
     export const types = {
+      NodeFragment: ["id"],
+
       User: ["id", "user"],
       Post: ["id", "post"],
       NodeType: [],
@@ -983,6 +1196,285 @@ Deno.test("exhaustive union interface types", () => {
 
     export const queries = {
       myNode: "query.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("union fragments with discriminated types", () => {
+  assertEquals(
+    codegen(
+      `
+      union Content = TextContent | ImageContent
+
+      type TextContent {
+        id: ID!
+        text: String!
+      }
+
+      type ImageContent {
+        id: ID!
+        url: String!
+      }
+
+      type Post {
+        id: ID!
+        content: Content!
+      }
+
+      type Query {
+        posts: [Post!]!
+      }
+      `,
+      [{
+        path: "fragments.gql",
+        content: `
+        fragment TextFragment on TextContent {
+          id
+          text
+        }
+        
+        fragment ImageFragment on ImageContent {
+          id
+          url
+        }
+        `,
+      }, {
+        path: "query.gql",
+        content: `
+        #import "./fragments.gql"
+        
+        query GetPosts {
+          posts {
+            id
+            content {
+              ...TextFragment
+              ...ImageFragment
+            }
+          }
+        }
+        `,
+      }],
+    ),
+    trimIndent(`
+    type String = string;
+
+    type ID = string;
+
+    type TextFragment = {
+      id: ID;
+      text: String;
+      __typename: "TextContent";
+    };
+
+    type ImageFragment = {
+      id: ID;
+      url: String;
+      __typename: "ImageContent";
+    };
+
+    type Content = TextContent | ImageContent;
+
+    type TextContent = {
+      __typename: "TextContent";
+      id: ID;
+      text: String;
+    };
+
+    type ImageContent = {
+      __typename: "ImageContent";
+      id: ID;
+      url: String;
+    };
+
+    type Post = {
+      __typename: "Post";
+      id: ID;
+      content: Content;
+    };
+
+    export type Types = {
+      TextFragment: TextFragment;
+      ImageFragment: ImageFragment;
+
+      Content: Content;
+      TextContent: TextContent;
+      ImageContent: ImageContent;
+      Post: Post;
+    };
+
+    export const types = {
+      TextFragment: ["id", "text"],
+      ImageFragment: ["id", "url"],
+
+      Content: [],
+      TextContent: ["id", "text"],
+      ImageContent: ["id", "url"],
+      Post: ["id", "content"],
+    } as const;
+
+    type GetPosts = {
+      posts: {
+        __typename: "Post";
+        id: ID;
+        content: {
+          __typename: "TextContent";
+          id: ID;
+          text: String;
+        } | {
+          __typename: "ImageContent";
+          id: ID;
+          url: String;
+        };
+      }[];
+    };
+
+    export type Query = {
+      GetPosts: { data: GetPosts; };
+    };
+
+    export const queries = {
+      GetPosts: "query.gql",
+    };
+
+    `),
+  );
+});
+Deno.test("nested fragments export all referenced types", () => {
+  assertEquals(
+    codegen(
+      `
+      union Content = Article | Video
+
+      type Article {
+        id: ID!
+        title: String!
+      }
+
+      type Video {
+        id: ID!
+        url: String!
+      }
+
+      type Query {
+        content: Content!
+      }
+      `,
+      [{
+        path: "fragments.gql",
+        content: `
+        fragment ArticleFragment on Article {
+          id
+          title
+        }
+        
+        fragment VideoFragment on Video {
+          id
+          url
+        }
+        `,
+      }, {
+        path: "query.gql",
+        content: `
+        #import "./fragments.gql"
+        
+        fragment ContentFragment on Content {
+          ... on Article {
+            ...ArticleFragment
+          }
+          ... on Video {
+            ...VideoFragment
+          }
+        }
+        
+        query GetContent {
+          content {
+            ...ContentFragment
+          }
+        }
+        `,
+      }],
+    ),
+    trimIndent(`
+    type String = string;
+
+    type ID = string;
+
+    type ArticleFragment = {
+      id: ID;
+      title: String;
+      __typename: "Article";
+    };
+
+    type VideoFragment = {
+      id: ID;
+      url: String;
+      __typename: "Video";
+    };
+
+    type ContentFragment = {
+      id: ID;
+      title: String;
+      __typename: "Article";
+    } | {
+      id: ID;
+      url: String;
+      __typename: "Video";
+    };
+
+    type Content = Article | Video;
+
+    type Article = {
+      __typename: "Article";
+      id: ID;
+      title: String;
+    };
+
+    type Video = {
+      __typename: "Video";
+      id: ID;
+      url: String;
+    };
+
+    export type Types = {
+      ArticleFragment: ArticleFragment;
+      VideoFragment: VideoFragment;
+      ContentFragment: ContentFragment;
+
+      Content: Content;
+      Article: Article;
+      Video: Video;
+    };
+
+    export const types = {
+      ArticleFragment: ["id", "title"],
+      VideoFragment: ["id", "url"],
+      ContentFragment: ["id", "title", "url"],
+
+      Content: [],
+      Article: ["id", "title"],
+      Video: ["id", "url"],
+    } as const;
+
+    type GetContent = {
+      content: {
+        __typename: "Article";
+        id: ID;
+        title: String;
+      } | {
+        __typename: "Video";
+        id: ID;
+        url: String;
+      };
+    };
+
+    export type Query = {
+      GetContent: { data: GetContent; };
+    };
+
+    export const queries = {
+      GetContent: "query.gql",
     };
 
     `),

@@ -85,10 +85,26 @@ const resolveType = (
           name: { kind: Kind.NAME, value: name },
         };
       }
-      type = {
-        kind: Kind.NON_NULL_TYPE,
-        type: { kind: Kind.NAMED_TYPE, name: { kind: Kind.NAME, value: name } },
-      };
+      // Check if this is a fragment type
+      if (!definition) {
+        const fragment = definitions.find((d): d is FragmentDefinitionNode =>
+          d.kind === Kind.FRAGMENT_DEFINITION && d.name.value === name
+        );
+        if (fragment) {
+          // Use the fragment definition directly
+          definition = fragment;
+          type = {
+            kind: Kind.NON_NULL_TYPE,
+            type: { kind: Kind.NAMED_TYPE, name: { kind: Kind.NAME, value: name } },
+          };
+        }
+      }
+      if (!type) {
+        type = {
+          kind: Kind.NON_NULL_TYPE,
+          type: { kind: Kind.NAMED_TYPE, name: { kind: Kind.NAME, value: name } },
+        };
+      }
     } else {
       parent = definition.name.value;
 
@@ -273,10 +289,8 @@ const resolveValue = <T>(
   }
 
   if (
-    fieldTypeDefinitions.length === 1 &&
-    (fieldTypeDefinitions[0].kind === Kind.OBJECT_TYPE_DEFINITION ||
-      fieldTypeDefinitions[0].kind === Kind.INTERFACE_TYPE_DEFINITION ||
-      fieldTypeDefinitions[0].kind === Kind.INPUT_OBJECT_TYPE_DEFINITION)
+    fieldTypeDefinitions.length === 1 && "name" in fieldTypeDefinitions[0] &&
+    fieldTypeDefinitions[0].name
   ) {
     return _proxy<T[keyof T]>(
       definitions,
@@ -684,18 +698,17 @@ export const _proxy = <T>(
         ) as T[keyof T];
       };
 
-      const keys: string[] = [
-        ...(definition.kind === Kind.OBJECT_TYPE_DEFINITION
-          ? ["__typename"]
-          : []),
-        ...(selectionSet
-          ? selectionSetToKeys(
-            definitions,
-            selectionSet,
-            definition.name.value,
-          )
-          : definition.fields?.map((f) => f.name.value) ?? []),
-      ];
+      const keys = selectionSet
+        ? selectionSetToKeys(
+          definitions,
+          selectionSet,
+          definition.name.value,
+        )
+        : definition.fields?.map((f) => f.name.value) ?? [];
+      if (
+        definition.kind === Kind.OBJECT_TYPE_DEFINITION &&
+        !keys.includes("__typename")
+      ) keys.unshift("__typename");
 
       return new Proxy({}, {
         get: getProp,
@@ -731,6 +744,7 @@ export const _proxy = <T>(
       return _proxy(definitions, scalars, concreteType.name.value, patches, {
         prev,
         selectionSet,
+        nonNull: true,
       });
     }
     case Kind.OPERATION_DEFINITION: {
@@ -912,6 +926,21 @@ export const _proxy = <T>(
       if (prev != null) return prev;
 
       return definition.values?.[0]?.name.value as T;
+    }
+    case Kind.FRAGMENT_DEFINITION: {
+      // For fragments, create a proxy for the base type with the fragment's selection set
+      const baseTypeName = definition.typeCondition.name.value;
+      return _proxy<T>(
+        definitions,
+        scalars,
+        baseTypeName,
+        patches,
+        {
+          prev,
+          selectionSet: definition.selectionSet,
+          nonNull: true,
+        }
+      );
     }
     default:
       throw new Error(`Unhandled definition kind '${definition.kind}'`);

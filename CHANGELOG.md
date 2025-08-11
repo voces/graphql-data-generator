@@ -1,6 +1,13 @@
+# 0.4.1
+
+- **[feat]** `Types` and `types` now include fragments.
+- **[bugfix]** Fixed resolving an initial value for unions.
+- **[bugfix]** Fixed default being ignored for unions and interfaces.
+- **[bugfix]** Fixed union field merging when using fragments.
+
 # 0.4.0
 
-- **[Breaking]** Generates `types` const is now a map from typename to maximal
+- **[Breaking]** Generated `types` const is now a map from typename to maximal
   selection set.
 - **[Breaking]** Replaced second `offset` parameter of `waitForMocks` with an
   object that accepts an `offset` property.

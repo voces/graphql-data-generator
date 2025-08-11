@@ -1112,6 +1112,17 @@ Deno.test("unions", () => {
   );
 });
 
+Deno.test("unions > as a field", () => {
+  assertEquals(
+    proxy<{ result: { __typename: "User" } }>(
+      definitions,
+      scalars,
+      "WrappedSearchResult",
+    ).result.__typename,
+    "User",
+  );
+});
+
 Deno.test("unions > list", () => {
   assertEquals(proxy(definitions, scalars, "Query.search"), []);
 
@@ -1348,4 +1359,36 @@ Deno.test("clear > inputs", () => {
     ).tags,
     undefined,
   );
+});
+
+Deno.test("fragments", async () => {
+  // Parse the NodeFragment definition
+  const fragmentContent = await Deno.readTextFile("examples/board/NodeFragment.gql");
+  const fragmentDoc = parse(fragmentContent);
+  const allDefinitions = [...definitions, ...fragmentDoc.definitions];
+
+  // Test that we can build a fragment object (using unknown since NodeFragment type isn't generated in test types)
+  const nodeFragment = proxy<unknown>(
+    allDefinitions,
+    scalars,
+    "NodeFragment"
+  );
+
+  assertEquals(nodeFragment, {
+    __typename: "User", // Resolves to User as the concrete type
+    id: "scalar-ID-User"
+  });
+
+  // Test with a patch
+  const patchedFragment = proxy<unknown>(
+    allDefinitions,
+    scalars,
+    "NodeFragment",
+    { id: "custom-id" }
+  );
+
+  assertEquals(patchedFragment, {
+    __typename: "User",
+    id: "custom-id"
+  });
 });
