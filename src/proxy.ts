@@ -95,14 +95,20 @@ const resolveType = (
           definition = fragment;
           type = {
             kind: Kind.NON_NULL_TYPE,
-            type: { kind: Kind.NAMED_TYPE, name: { kind: Kind.NAME, value: name } },
+            type: {
+              kind: Kind.NAMED_TYPE,
+              name: { kind: Kind.NAME, value: name },
+            },
           };
         }
       }
       if (!type) {
         type = {
           kind: Kind.NON_NULL_TYPE,
-          type: { kind: Kind.NAMED_TYPE, name: { kind: Kind.NAME, value: name } },
+          type: {
+            kind: Kind.NAMED_TYPE,
+            name: { kind: Kind.NAME, value: name },
+          },
         };
       }
     } else {
@@ -401,11 +407,11 @@ const selectionSetToKeys = (
   selectionSet: SelectionSetNode,
   typename: string,
 ) => {
-  const keys: string[] = [];
+  const keys = new Set<string>();
   for (const s of selectionSet.selections) {
     switch (s.kind) {
       case Kind.FIELD:
-        keys.push(s.alias?.value ?? s.name.value);
+        keys.add(s.alias?.value ?? s.name.value);
         break;
       case Kind.FRAGMENT_SPREAD: {
         const definition = definitions.find((d): d is FragmentDefinitionNode =>
@@ -415,9 +421,13 @@ const selectionSetToKeys = (
         if (!definition) {
           throw new Error(`Could not find fragment ${s.name.value}`);
         }
-        keys.push(
-          ...selectionSetToKeys(definitions, definition.selectionSet, typename),
-        );
+        for (
+          const key of selectionSetToKeys(
+            definitions,
+            definition.selectionSet,
+            typename,
+          )
+        ) keys.add(key);
         break;
       }
       case Kind.INLINE_FRAGMENT: {
@@ -425,14 +435,18 @@ const selectionSetToKeys = (
           !s.typeCondition || !typename ||
           s.typeCondition.name.value === typename
         ) {
-          keys.push(
-            ...selectionSetToKeys(definitions, s.selectionSet, typename),
-          );
+          for (
+            const key of selectionSetToKeys(
+              definitions,
+              s.selectionSet,
+              typename,
+            )
+          ) keys.add(key);
         }
       }
     }
   }
-  return keys;
+  return Array.from(keys);
 };
 
 const getField = (
@@ -805,23 +819,53 @@ export const _proxy = <T>(
 
             if (value !== undefined) {
               if (!mock.variables) mock.variables = {};
-              mock.variables[name] = value;
+
+              if (value !== clear) {
+                mock.variables[name] = value;
+                continue;
+              }
+
+              const isNonNull =
+                variableDefinition.type.kind === Kind.NON_NULL_TYPE;
+
+              // Use default value if available if specified
+              if (variableDefinition.defaultValue) {
+                mock.variables[name] = constToValue(
+                  variableDefinition.defaultValue,
+                );
+                continue;
+              }
+
+              // For nullable variables, clear means undefined
+              if (!isNonNull) {
+                delete mock.variables[name];
+                continue;
+              }
+
+              // Generate a default value based on the type
+              const result = resolveValue(
+                definitions,
+                scalars,
+                variableDefinition.type,
+                { hostType: `${path}Variables`, prop: name, input: false },
+              );
+              mock.variables[name] = result;
               continue;
             }
-          }
-
-          if (variableDefinition.defaultValue) {
-            if (!mock.variables) mock.variables = {};
-            mock.variables[name] = constToValue(
-              variableDefinition.defaultValue,
-            );
-            continue;
           }
         }
 
         if (mockPrev?.variables && name in mockPrev.variables) {
           if (!mock.variables) mock.variables = {};
           mock.variables[name] = mockPrev.variables[name];
+          continue;
+        }
+
+        if (variableDefinition.defaultValue) {
+          if (!mock.variables) mock.variables = {};
+          mock.variables[name] = constToValue(
+            variableDefinition.defaultValue,
+          );
           continue;
         }
 
@@ -939,7 +983,7 @@ export const _proxy = <T>(
           prev,
           selectionSet: definition.selectionSet,
           nonNull: true,
-        }
+        },
       );
     }
     default:

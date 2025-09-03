@@ -1361,9 +1361,84 @@ Deno.test("clear > inputs", () => {
   );
 });
 
+Deno.test("clear > individual variables in nested inputs", () => {
+  const mutation = `
+    mutation UpdateUser($id: ID!, $name: String) {
+      updateUser(input: { id: $id, name: $name }) {
+        id
+      }
+    }
+  `;
+
+  const result = operation<
+    {
+      variables: { id: string; name: string | undefined };
+      data: { updateUser: { id: string } };
+    }
+  >(
+    definitions,
+    scalars,
+    mutation,
+    { variables: { id: "user-id", name: "John" } },
+    { variables: { name: clear } },
+  );
+
+  assertEquals(result.request.variables?.id, "user-id");
+  assertEquals(result.request.variables?.name, undefined);
+});
+
+Deno.test("clear > non-nullable variables fallback to defaults", () => {
+  const mutationWithDefault = `
+    mutation CreatePost($title: String! = "Default Title", $content: String!) {
+      createPost(input: { title: $title, content: $content, authorId: "1" }) {
+        id
+      }
+    }
+  `;
+
+  const resultWithDefault = operation<
+    { variables: { title: string; content: string }; data: { id: string } }
+  >(
+    definitions,
+    scalars,
+    mutationWithDefault,
+    { variables: { title: "My Title", content: "My Content" } },
+    { variables: { title: clear, content: clear } },
+  );
+
+  // Should use the default value from the operation definition
+  assertEquals(resultWithDefault.request.variables?.title, "Default Title");
+  assertEquals(
+    resultWithDefault.request.variables?.content,
+    "scalar-String-CreatePostVariables",
+  );
+});
+
+Deno.test("default values are used", () => {
+  const queryWithDefault = `
+    query TestQuery($id: ID! = "default-id", $foo: Int = 0) {
+      node(id: $id) {
+        id
+      }
+    }
+  `;
+
+  const result = operation<
+    {
+      variables: { id: string; foo: number | null };
+      data: { node: { id: string } };
+    }
+  >(definitions, scalars, queryWithDefault);
+
+  assertEquals(result.request.variables?.id, "default-id");
+  assertEquals(result.request.variables?.foo, 0);
+});
+
 Deno.test("fragments", async () => {
   // Parse the NodeFragment definition
-  const fragmentContent = await Deno.readTextFile("examples/board/NodeFragment.gql");
+  const fragmentContent = await Deno.readTextFile(
+    "examples/board/NodeFragment.gql",
+  );
   const fragmentDoc = parse(fragmentContent);
   const allDefinitions = [...definitions, ...fragmentDoc.definitions];
 
@@ -1371,12 +1446,12 @@ Deno.test("fragments", async () => {
   const nodeFragment = proxy<unknown>(
     allDefinitions,
     scalars,
-    "NodeFragment"
+    "NodeFragment",
   );
 
   assertEquals(nodeFragment, {
     __typename: "User", // Resolves to User as the concrete type
-    id: "scalar-ID-User"
+    id: "scalar-ID-User",
   });
 
   // Test with a patch
@@ -1384,11 +1459,78 @@ Deno.test("fragments", async () => {
     allDefinitions,
     scalars,
     "NodeFragment",
-    { id: "custom-id" }
+    { id: "custom-id" },
   );
 
   assertEquals(patchedFragment, {
     __typename: "User",
-    id: "custom-id"
+    id: "custom-id",
   });
+});
+
+Deno.test("operations > fragments > duplicate keys from multiple fragments", () => {
+  const queryWithFragments = `
+    query GetUsers {
+      users {
+        ...UserBasic
+        ...UserContact
+        ...UserFull
+        id
+      }
+    }
+
+    fragment UserBasic on User {
+      id
+      name
+    }
+
+    fragment UserContact on User {
+      id
+      email
+    }
+
+    fragment UserFull on User {
+      name
+      email
+    }
+  `;
+
+  type GetUsersOp = {
+    data: {
+      users: Array<{
+        __typename: "User";
+        id: string;
+        name: string;
+        email: string;
+      }>;
+    };
+  };
+
+  const queryDefs = parse(queryWithFragments).definitions;
+  const allDefs = [...definitions, ...queryDefs];
+
+  const result = operation<GetUsersOp>(
+    allDefs,
+    scalars,
+    queryWithFragments,
+    { data: { users: [{}] } },
+  );
+
+  const firstUser = result.result.data?.users?.[0];
+  assertEquals(firstUser, {
+    __typename: "User",
+    id: "scalar-ID-User",
+    name: "scalar-String-User",
+    email: "scalar-String-User",
+  });
+
+  const userKeys = Object.keys(firstUser || {});
+  const uniqueKeys = [...new Set(userKeys)];
+
+  assertEquals(
+    userKeys.length,
+    uniqueKeys.length,
+    "Should have no duplicate keys",
+  );
+  assertEquals(userKeys.sort(), ["__typename", "email", "id", "name"].sort());
 });

@@ -1,5 +1,5 @@
 {
-  "version": "0.4.1",
+  "version": "0.4.2",
   "tasks": {
     "test": "deno test -A --watch",
     "build": "deno task build:npm && deno task build:examples",
@@ -15,9 +15,9 @@
     "jsxImportSource": "npm:react"
   },
   "imports": {
-    "npm:@apollo/client/link/error": "npm:@apollo/client/link/error/index.js",
-    "npm:@apollo/client/testing": "npm:@apollo/client/testing/index.js",
-    "npm:@apollo/client/utilities": "npm:@apollo/client/utilities/index.js",
+    "npm:@apollo/client@3/link/error": "npm:@apollo/client@3/link/error/index.js",
+    "npm:@apollo/client@3/testing": "npm:@apollo/client@3/testing/index.js",
+    "npm:@apollo/client@3/utilities": "npm:@apollo/client@3/utilities/index.js",
     "npm:@testing-library/react/dont-cleanup-after-each": "npm:@testing-library/react/dont-cleanup-after-each.js"
   }
 }

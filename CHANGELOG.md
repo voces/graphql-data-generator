@@ -1,3 +1,10 @@
+# 0.4.2
+
+- **[bugfix]** Fixed handling duplicate key selections raising exceptions.
+- **[bugfix]** Fixed default values for nullable variables not being used.
+- **[bugfix]** Fixed clearing child inputs with `clear`.
+- **[bugfix]** Pinned to `@apollo/client@3`.
+
 # 0.4.1
 
 - **[feat]** `Types` and `types` now include fragments.

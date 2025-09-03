@@ -7,7 +7,7 @@ import {
   useApolloClient,
   useMutation,
   useQuery,
-} from "npm:@apollo/client";
+} from "npm:@apollo/client@3";
 import { render } from "npm:@testing-library/react";
 import { GlobalRegistrator } from "npm:@happy-dom/global-registrator";
 import {

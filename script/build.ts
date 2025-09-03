@@ -33,6 +33,10 @@ const peerDependencies = [
   ...optionalPeerDependencies,
 ];
 
+const dependencyVersions: Record<string, string | undefined> = {
+  "@apollo/client": "3",
+};
+
 await build({
   entryPoints: ["./src/index.ts", {
     kind: "bin",
@@ -56,7 +60,14 @@ await build({
   declaration: "separate",
   mappings: Object.fromEntries(
     optionalPeerDependencies.map(
-      (dep) => [`npm:${dep}`, { name: dep, markPeerDependency: true }],
+      (
+        dep,
+      ) => [
+        `npm:${dep}${
+          dep in dependencyVersions ? `@${dependencyVersions[dep]}` : ""
+        }`,
+        { name: dep, markPeerDependency: true },
+      ],
     ),
   ),
   package: {

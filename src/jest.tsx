@@ -5,20 +5,20 @@ import {
   ApolloLink,
   type Operation,
   useApolloClient,
-} from "npm:@apollo/client";
-import { onError } from "npm:@apollo/client/link/error";
+} from "npm:@apollo/client@3";
+import { onError } from "npm:@apollo/client@3/link/error";
 import {
   MockedProvider as ApolloMockedProvider,
   MockedProviderProps,
   MockedResponse,
   MockLink,
-} from "npm:@apollo/client/testing";
+} from "npm:@apollo/client@3/testing";
 import { waitFor } from "npm:@testing-library/dom";
 import { DocumentNode, Kind, print } from "npm:graphql";
 import { diff as jestDiff } from "npm:jest-diff";
 import "npm:@testing-library/react/dont-cleanup-after-each";
 import { cleanup } from "npm:@testing-library/react";
-import { addTypenameToDocument } from "npm:@apollo/client/utilities";
+import { addTypenameToDocument } from "npm:@apollo/client@3/utilities";
 
 export type ExtendedMockedResponse = MockedResponse & {
   stack?: string;
