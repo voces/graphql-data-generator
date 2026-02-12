@@ -1,3 +1,14 @@
+# 0.4.3
+
+- **[feat]** Allow setting `data: null` in operation patches for error
+  responses.
+- **[bugfix]** Fixed aliased fields within union type inline fragments not being
+  tracked in codegen `Types` export.
+- **[feat]** Union/interface type resolution now respects default patch on the
+  union/interface type itself.
+- **[bugfix]** Fixed duplicate fragment definitions when the same fragment is
+  imported by multiple operation files.
+
 # 0.4.2
 
 - **[bugfix]** Fixed handling duplicate key selections raising exceptions.

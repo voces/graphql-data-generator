@@ -247,6 +247,27 @@ const resolveConcreteType = <T>(
     );
   }
 
+  // Check for default patch on the union/interface type itself
+  const unionDefault = getDefaultPatch<Record<string, unknown>>(
+    definition.name.value,
+  );
+  if (unionDefault && typeof unionDefault === "object") {
+    let defaultOptions = [...options];
+    for (const field in unionDefault) {
+      defaultOptions = defaultOptions.filter((o) =>
+        field === "__typename"
+          ? o.name.value === unionDefault[field]
+          : o.fields?.some((f) => f.name.value === field) ||
+            (definition.kind === Kind.INTERFACE_TYPE_DEFINITION &&
+              definition.fields?.some((f) => f.name.value === field))
+      );
+      if (defaultOptions.length === 1) return defaultOptions[0];
+    }
+    if (defaultOptions.length > 0 && defaultOptions.length < options.length) {
+      return defaultOptions[0];
+    }
+  }
+
   return options[0];
 };
 
@@ -884,48 +905,51 @@ export const _proxy = <T>(
       const dataPatch = typeof mockPatch?.data === "function"
         ? mockPatch.data(mockPrev!)
         : mockPatch?.data;
-      for (const selection of definition.selectionSet.selections ?? []) {
-        switch (selection.kind) {
-          case Kind.FIELD: {
-            const prop = selection.alias?.value ?? selection.name.value;
-            const rawValue = dataPatch?.[prop];
-            const value = typeof rawValue === "function"
-              ? rawValue(mockPrev?.data)
-              : rawValue;
-            if (!mock.data) mock.data = {};
-            // Query, Mutation, Subscription
-            const operationKey = definition.operation[0].toUpperCase() +
-              definition.operation.slice(1);
+      // Allow explicitly setting data to null (e.g., for error responses)
+      if (dataPatch !== null) {
+        for (const selection of definition.selectionSet.selections ?? []) {
+          switch (selection.kind) {
+            case Kind.FIELD: {
+              const prop = selection.alias?.value ?? selection.name.value;
+              const rawValue = dataPatch?.[prop];
+              const value = typeof rawValue === "function"
+                ? rawValue(mockPrev?.data)
+                : rawValue;
+              if (!mock.data) mock.data = {};
+              // Query, Mutation, Subscription
+              const operationKey = definition.operation[0].toUpperCase() +
+                definition.operation.slice(1);
 
-            if (value === clear) {
+              if (value === clear) {
+                mock.data[prop] = _proxy(
+                  definitions,
+                  scalars,
+                  `${operationKey}.${selection.name.value}`,
+                  [],
+                  { selectionSet: selection.selectionSet },
+                );
+                continue;
+              }
+
               mock.data[prop] = _proxy(
                 definitions,
                 scalars,
                 `${operationKey}.${selection.name.value}`,
-                [],
-                { selectionSet: selection.selectionSet },
+                value !== undefined ? [value] : [],
+                {
+                  prev: mockPrev?.data?.[prop],
+                  selectionSet: selection.selectionSet,
+                },
               );
+
               continue;
             }
-
-            mock.data[prop] = _proxy(
-              definitions,
-              scalars,
-              `${operationKey}.${selection.name.value}`,
-              value !== undefined ? [value] : [],
-              {
-                prev: mockPrev?.data?.[prop],
-                selectionSet: selection.selectionSet,
-              },
-            );
-
-            continue;
+            case Kind.FRAGMENT_SPREAD:
+            case Kind.INLINE_FRAGMENT:
+              throw new Error(`Unhandled selection kind ${selection.kind}`);
+            default:
+              absurd(selection);
           }
-          case Kind.FRAGMENT_SPREAD:
-          case Kind.INLINE_FRAGMENT:
-            throw new Error(`Unhandled selection kind ${selection.kind}`);
-          default:
-            absurd(selection);
         }
       }
 
@@ -1030,7 +1054,8 @@ export const operation = <
   definitions: readonly DefinitionNode[],
   scalars: Record<string, unknown | ((typename: string) => unknown)>,
   query: string | DocumentNode,
-  ...patches: (Patch<Omit<O, "error" | "errors">> & {
+  ...patches: (Patch<Omit<O, "error" | "errors" | "data">> & {
+    data?: Patch<O["data"]> | null;
     error?: Error;
     errors?: GraphQLError[];
   } & Partial<Extra>)[]
@@ -1064,7 +1089,7 @@ export const operation = <
     mock.error = error instanceof Error
       ? error
       : Object.assign(new Error(), error);
-  } else if (data) mock.result.data = data;
+  } else if (data !== undefined) mock.result.data = data;
   if (errors) mock.result.errors = errors;
 
   return mock;

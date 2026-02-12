@@ -825,6 +825,65 @@ Deno.test("operations > queries > objects", async () => {
   );
 });
 
+Deno.test("operations > queries > objects > union aliased field narrowing", () => {
+  // When a union type has inline fragments with aliased fields,
+  // type narrowing should work with the alias name in the patch
+  const query = `
+    query GetNode($id: ID!) {
+      node(id: $id) {
+        ... on User {
+          userId: id
+          userName: name
+          userEmail: email
+        }
+        ... on Post {
+          postId: id
+          postTitle: title
+          postContent: content
+        }
+      }
+    }
+  `;
+  type Operation = {
+    data: {
+      node: {
+        __typename: "User";
+        userId: string;
+        userName: string;
+        userEmail: string;
+      } | {
+        __typename: "Post";
+        postId: string;
+        postTitle: string;
+        postContent: string;
+      };
+    };
+  };
+
+  // Without patch, defaults to first type (User)
+  assertEquals(
+    operation<Operation>(definitions, scalars, query).result.data!.node
+      .__typename,
+    "User",
+  );
+
+  // Narrowing with aliased field should resolve to Post
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { node: { postTitle: "My Post" } },
+    }).result.data!.node.__typename,
+    "Post",
+  );
+
+  // Narrowing with aliased field should resolve to User
+  assertEquals(
+    operation<Operation>(definitions, scalars, query, {
+      data: { node: { userName: "John" } },
+    }).result.data!.node.__typename,
+    "User",
+  );
+});
+
 Deno.test("operations > queries > objects > deep aliasing", async () => {
   const query = await Deno.readTextFile("examples/board/GetUserPosts.gql");
 
@@ -935,6 +994,23 @@ Deno.test("operations > queries > errors", () => {
       },
     },
   );
+});
+
+Deno.test("operations > queries > data null with errors", () => {
+  const query = "query Foo { nonnullableScalar }";
+  type Operation = { data: { nonnullableScalar: string } };
+  const error = new GraphQLError("oops");
+
+  // Allow explicitly setting data to null, overriding previous data value
+  const result = operation<Operation>(
+    definitions,
+    scalars,
+    query,
+    { data: { nonnullableScalar: "some value" } },
+    { data: null, errors: [error] },
+  );
+  assertEquals(result.result.data, null);
+  assertEquals(result.result.errors, [error]);
 });
 
 Deno.test("operations > queries > prev errors preserved", () => {

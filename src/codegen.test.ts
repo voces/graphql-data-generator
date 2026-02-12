@@ -1480,3 +1480,98 @@ Deno.test("nested fragments export all referenced types", () => {
     `),
   );
 });
+
+Deno.test("alias within union types", () => {
+  // Verifies that aliased fields within union type inline fragments are
+  // correctly tracked in the Types export using the original field name.
+  assertEquals(
+    codegen(
+      `
+      union SearchResult = User | Post
+
+      type User {
+        id: ID!
+        name: String!
+      }
+
+      type Post {
+        id: ID!
+        title: String!
+      }
+
+      type Query {
+        search: SearchResult!
+      }
+      `,
+      [{
+        path: "search.gql",
+        content: `
+        query Search {
+          search {
+            ... on User {
+              userId: id
+              name
+            }
+            ... on Post {
+              postId: id
+              title
+            }
+          }
+        }
+        `,
+      }],
+    ),
+    trimIndent(`
+    type String = string;
+
+    type ID = string;
+
+    type SearchResult = User | Post;
+
+    type User = {
+      __typename: "User";
+      id: ID;
+      name: String;
+    };
+
+    type Post = {
+      __typename: "Post";
+      id: ID;
+      title: String;
+    };
+
+    export type Types = {
+      SearchResult: SearchResult;
+      User: User;
+      Post: Post;
+    };
+
+    export const types = {
+      SearchResult: [],
+      User: ["id", "name"],
+      Post: ["id", "title"],
+    } as const;
+
+    type Search = {
+      search: {
+        __typename: "User";
+        userId: ID;
+        name: String;
+      } | {
+        __typename: "Post";
+        postId: ID;
+        title: String;
+      };
+    };
+
+    export type Query = {
+      Search: { data: Search; };
+    };
+
+    export const queries = {
+      Search: "search.gql",
+    };
+
+    `),
+  );
+});

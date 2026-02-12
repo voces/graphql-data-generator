@@ -1,0 +1,12 @@
+query SearchAliased($term: String!) {
+  search(term: $term) {
+    ... on User {
+      userId: id
+      userName: name
+    }
+    ... on Post {
+      postId: id
+      postTitle: title
+    }
+  }
+}

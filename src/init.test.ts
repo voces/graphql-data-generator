@@ -260,6 +260,63 @@ Deno.test("objects > union types", () => {
   assertEquals(build.SearchResult({ title: "Coerce" }).__typename, "Post");
 });
 
+Deno.test("objects > union types > default patch on union type", () => {
+  // When the union type itself has a default patch with __typename,
+  // it should use that type instead of the first member
+  const build = init<Query, Mutation, Subscription, Types, Inputs>(
+    schema,
+    queries,
+    mutations,
+    subscriptions,
+    types,
+    inputs,
+    scalars,
+  )(() => ({
+    SearchResult: { default: { __typename: "Post" } },
+    Post: { default: { title: "Default Post Title" } },
+  }));
+  assertEquals(build.SearchResult().__typename, "Post");
+  assertEquals(
+    (build.SearchResult() as Types["Post"]).title,
+    "Default Post Title",
+  );
+  // Can re-narrow to User by passing a User-specific field
+  assertEquals(
+    build.SearchResult({ email: "test@example.com" }).__typename,
+    "User",
+  );
+  assertEquals(
+    (build.SearchResult({ email: "test@example.com" }) as Types["User"]).email,
+    "test@example.com",
+  );
+});
+
+Deno.test("objects > union types > default patch on union type via field narrowing", () => {
+  // When the union type itself has a default patch with a type-specific field,
+  // it should narrow to that type
+  const build = init<Query, Mutation, Subscription, Types, Inputs>(
+    schema,
+    queries,
+    mutations,
+    subscriptions,
+    types,
+    inputs,
+    scalars,
+  )(() => ({
+    SearchResult: { default: { title: "Default Post Title" } },
+  }));
+  assertEquals(build.SearchResult().__typename, "Post");
+  assertEquals(
+    (build.SearchResult() as Types["Post"]).title,
+    "Default Post Title",
+  );
+  // Can re-narrow to User by passing a User-specific field
+  assertEquals(
+    build.SearchResult({ email: "test@example.com" }).__typename,
+    "User",
+  );
+});
+
 Deno.test("objects > interface types", () => {
   assertEquals(build.Node().__typename, "User");
   assertEquals(build.Node({ title: "Coerce" }).__typename, "Post");
@@ -488,6 +545,25 @@ Deno.test("query > fragments", async () => {
   );
 });
 
+Deno.test("query > union aliased field narrowing", () => {
+  // When a query has a union type with aliased fields,
+  // narrowing should work with the alias name in the patch
+  const result = build.SearchAliased({
+    data: { search: [{ postTitle: "My Post" }] },
+  });
+  assertEquals(result.result.data?.search[0].__typename, "Post");
+  assertEquals(
+    (result.result.data?.search[0] as { postTitle: string }).postTitle,
+    "My Post",
+  );
+
+  // Also verify narrowing to User
+  const userResult = build.SearchAliased({
+    data: { search: [{ userName: "John" }] },
+  });
+  assertEquals(userResult.result.data?.search[0].__typename, "User");
+});
+
 Deno.test("query > empty patch clones", () => {
   const getObjects = (
     object: Record<string, unknown>,
@@ -637,12 +713,12 @@ Deno.test("fragments", () => {
     NodeFragment: {
       // Default transform applied to all NodeFragment instances
       default: { id: "default-fragment-id" },
-      
+
       // Custom transform method
       withCustomId: (_prev: unknown, customId: string) => ({
         id: `custom-${customId}`,
       }),
-      
+
       // Another custom transform
       asPost: () => ({
         __typename: "Post",
@@ -653,28 +729,30 @@ Deno.test("fragments", () => {
 
   // Test that NodeFragment builder is available
   assertEquals("NodeFragment" in buildWithFragments, true);
-  
+
   // Test basic fragment with default transform
   const nodeFragment = buildWithFragments.NodeFragment();
-  
+
   assertObjectMatch(nodeFragment, {
     __typename: "User", // Resolves to User as concrete type
     id: "default-fragment-id", // Uses default transform
   });
 
   // Test with manual patch (overrides default)
-  const patchedFragment = buildWithFragments.NodeFragment({ 
-    id: "manual-override" 
+  const patchedFragment = buildWithFragments.NodeFragment({
+    id: "manual-override",
   });
-  
+
   assertObjectMatch(patchedFragment, {
     __typename: "User",
     id: "manual-override",
   });
 
   // Test custom transform method
-  const customFragment = buildWithFragments.NodeFragment().withCustomId("test123");
-  
+  const customFragment = buildWithFragments.NodeFragment().withCustomId(
+    "test123",
+  );
+
   assertObjectMatch(customFragment, {
     __typename: "User",
     id: "custom-test123",
@@ -682,7 +760,7 @@ Deno.test("fragments", () => {
 
   // Test another custom transform that changes typename
   const postFragment = buildWithFragments.NodeFragment().asPost();
-  
+
   assertObjectMatch(postFragment, {
     __typename: "Post",
     id: "post-fragment-id",
@@ -692,9 +770,138 @@ Deno.test("fragments", () => {
   const chainedFragment = buildWithFragments.NodeFragment()
     .withCustomId("chained")
     .patch({ __typename: "Post" });
-    
+
   assertObjectMatch(chainedFragment, {
-    __typename: "Post", 
+    __typename: "Post",
     id: "custom-chained",
   });
+});
+
+Deno.test("fragments > deduplication", async () => {
+  // Create a scenario where the same fragment is imported by multiple operations
+  // The fragment should only appear once in the combined definitions
+
+  // Write temporary test files
+  const tmpDir = await Deno.makeTempDir();
+
+  const schemaContent = `
+    type Query {
+      user: User!
+      post: Post!
+    }
+    type User {
+      id: ID!
+      name: String!
+    }
+    type Post {
+      id: ID!
+      title: String!
+      author: User!
+    }
+  `;
+
+  const fragmentContent = `
+    fragment UserFields on User {
+      id
+      name
+    }
+  `;
+
+  const query1Content = `
+    #import "./UserFields.gql"
+    query GetUser {
+      user {
+        ...UserFields
+      }
+    }
+  `;
+
+  const query2Content = `
+    #import "./UserFields.gql"
+    query GetPost {
+      post {
+        id
+        title
+        author {
+          ...UserFields
+        }
+      }
+    }
+  `;
+
+  await Deno.writeTextFile(`${tmpDir}/schema.graphql`, schemaContent);
+  await Deno.writeTextFile(`${tmpDir}/UserFields.gql`, fragmentContent);
+  await Deno.writeTextFile(`${tmpDir}/GetUser.gql`, query1Content);
+  await Deno.writeTextFile(`${tmpDir}/GetPost.gql`, query2Content);
+
+  const testSchema = await Deno.readTextFile(`${tmpDir}/schema.graphql`);
+
+  type TestQuery = {
+    GetUser: { data: { user: { id: string; name: string } } };
+    GetPost: {
+      data: {
+        post: {
+          id: string;
+          title: string;
+          author: { id: string; name: string };
+        };
+      };
+    };
+  };
+  type TestTypes = {
+    User: { id: string; name: string };
+    Post: { id: string; title: string; author: { id: string; name: string } };
+  };
+
+  // This should not throw due to duplicate fragment definitions
+  const testBuild = init<
+    TestQuery,
+    Record<string, never>,
+    Record<string, never>,
+    TestTypes,
+    Record<string, never>
+  >(
+    testSchema,
+    { GetUser: `${tmpDir}/GetUser.gql`, GetPost: `${tmpDir}/GetPost.gql` },
+    {},
+    {},
+    { User: ["id", "name"], Post: ["id", "title", "author"] } as const,
+    [],
+    scalars,
+  )(() => ({}));
+
+  // If fragments are deduplicated properly, both operations should work
+  // deno-lint-ignore no-explicit-any
+  const userResult = testBuild.GetUser() as any;
+  assertEquals(userResult.result.data.user.id, "scalar-ID-User");
+
+  // deno-lint-ignore no-explicit-any
+  const postResult = testBuild.GetPost() as any;
+  assertEquals(postResult.result.data.post.author.id, "scalar-ID-User");
+
+  // The key test: verify fragment definitions are NOT duplicated in the query documents
+  // Both GetUser and GetPost import UserFields.gql, so without deduplication,
+  // the fragment would appear multiple times when allDefinitions is constructed
+  const userQueryFragments = userResult.request.query.definitions.filter(
+    (d: { kind: string; name?: { value: string } }) =>
+      d.kind === "FragmentDefinition" && d.name?.value === "UserFields",
+  );
+  assertEquals(
+    userQueryFragments.length,
+    1,
+    `Expected 1 UserFields fragment in GetUser query, got ${userQueryFragments.length}`,
+  );
+
+  const postQueryFragments = postResult.request.query.definitions.filter(
+    (d: { kind: string; name?: { value: string } }) =>
+      d.kind === "FragmentDefinition" && d.name?.value === "UserFields",
+  );
+  assertEquals(
+    postQueryFragments.length,
+    1,
+    `Expected 1 UserFields fragment in GetPost query, got ${postQueryFragments.length}`,
+  );
+
+  // Clean up
+  await Deno.remove(tmpDir, { recursive: true });
 });

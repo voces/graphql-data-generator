@@ -28,7 +28,12 @@ import type {
   Patch,
   SimpleOperationMock,
 } from "./types.ts";
-import { _proxy, operation, proxy as _proxy_unused, withGetDefaultPatch } from "./proxy.ts";
+import {
+  _proxy,
+  operation,
+  proxy as _proxy_unused,
+  withGetDefaultPatch,
+} from "./proxy.ts";
 import { toObject } from "./util.ts";
 import { dirname, resolve } from "node:path";
 
@@ -187,9 +192,9 @@ export const init = <
   ) => Transforms,
 ): Build<Query, Mutation, Subscription, Types, Inputs, Transforms, Extra> => {
   const doc = parse(schema);
-  
-  // Collect all fragment definitions from operation files
-  const fragmentDefinitions: FragmentDefinitionNode[] = [];
+
+  // Collect all fragment definitions from operation files, deduplicating by name
+  const fragmentDefinitionsMap = new Map<string, FragmentDefinitionNode>();
   const collectFragments = (filePath: string, operationName?: string) => {
     try {
       // If we have an operation name, use it; otherwise try to parse the file directly
@@ -201,24 +206,30 @@ export const init = <
         const fileContent = loadFile(filePath);
         document = parse(fileContent);
       }
-      
-      fragmentDefinitions.push(
-        ...document.definitions.filter((def): def is FragmentDefinitionNode => 
-          def.kind === Kind.FRAGMENT_DEFINITION
-        )
-      );
+
+      for (const def of document.definitions) {
+        if (def.kind === Kind.FRAGMENT_DEFINITION) {
+          // Only add if not already seen (dedup by fragment name)
+          if (!fragmentDefinitionsMap.has(def.name.value)) {
+            fragmentDefinitionsMap.set(def.name.value, def);
+          }
+        }
+      }
     } catch {
       // Ignore files that can't be parsed
     }
   };
-  
+
   // Collect fragments from all operation files (parse entire files to get all fragments)
-  Object.values(queries).forEach(path => collectFragments(path));
-  Object.values(mutations).forEach(path => collectFragments(path));
-  Object.values(subscriptions).forEach(path => collectFragments(path));
-  
-  // Combine schema definitions with fragment definitions
-  const allDefinitions = [...doc.definitions, ...fragmentDefinitions];
+  Object.values(queries).forEach((path) => collectFragments(path));
+  Object.values(mutations).forEach((path) => collectFragments(path));
+  Object.values(subscriptions).forEach((path) => collectFragments(path));
+
+  // Combine schema definitions with deduplicated fragment definitions
+  const allDefinitions = [
+    ...doc.definitions,
+    ...fragmentDefinitionsMap.values(),
+  ];
 
   type FullBuild = Build<
     Query,

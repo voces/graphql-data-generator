@@ -32,7 +32,7 @@ export type OperationMock<
   Variables = Record<string, unknown> | never,
 > = {
   request: { query: DocumentNode; variables?: Variables };
-  result: { data?: Data; errors?: ReadonlyArray<GraphQLError> };
+  result: { data?: Data | null; errors?: ReadonlyArray<GraphQLError> };
   error?: Error;
   stack?: string;
   watch?: boolean;
