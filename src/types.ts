@@ -32,7 +32,7 @@ export type OperationMock<
   Variables = Record<string, unknown> | never,
 > = {
   request: { query: DocumentNode; variables?: Variables };
-  result: { data?: Data | null; errors?: ReadonlyArray<GraphQLError> };
+  result: { data?: Data; errors?: ReadonlyArray<GraphQLError> };
   error?: Error;
   stack?: string;
   watch?: boolean;
@@ -54,7 +54,8 @@ export type SimpleOperationMock<
 export type SimpleOperationPatch<
   Data extends Record<string, unknown> = Record<string, unknown>,
   Variables = Record<string, unknown> | never,
-> = Patch<{ data: Data; variables?: Variables }> & {
+> = Patch<Omit<{ data: Data; variables?: Variables }, "data">> & {
+  data?: Patch<Data> | null;
   error?: Error;
   errors?: GraphQLError[];
   watch?: boolean;

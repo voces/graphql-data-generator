@@ -1089,7 +1089,7 @@ export const operation = <
     mock.error = error instanceof Error
       ? error
       : Object.assign(new Error(), error);
-  } else if (data !== undefined) mock.result.data = data;
+  } else if (data !== undefined && data !== null) mock.result.data = data;
   if (errors) mock.result.errors = errors;
 
   return mock;

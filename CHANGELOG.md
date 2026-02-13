@@ -1,3 +1,8 @@
+# 0.4.4
+
+- **[bugfix]** Fixed `data: null` type and behavior in operation patches (now
+  correctly excludes data from result instead of setting it to null).
+
 # 0.4.3
 
 - **[feat]** Allow setting `data: null` in operation patches for error

@@ -1001,7 +1001,7 @@ Deno.test("operations > queries > data null with errors", () => {
   type Operation = { data: { nonnullableScalar: string } };
   const error = new GraphQLError("oops");
 
-  // Allow explicitly setting data to null, overriding previous data value
+  // Allow explicitly setting data to null to exclude it from result
   const result = operation<Operation>(
     definitions,
     scalars,
@@ -1009,7 +1009,8 @@ Deno.test("operations > queries > data null with errors", () => {
     { data: { nonnullableScalar: "some value" } },
     { data: null, errors: [error] },
   );
-  assertEquals(result.result.data, null);
+  assertEquals(result.result.data, undefined);
+  assertEquals("data" in result.result, false);
   assertEquals(result.result.errors, [error]);
 });
 
