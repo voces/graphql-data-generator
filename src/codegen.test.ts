@@ -1575,3 +1575,101 @@ Deno.test("alias within union types", () => {
     `),
   );
 });
+
+Deno.test("recursive input types", () => {
+  // Verifies that recursive input types are handled without infinite loops
+  assertEquals(
+    codegen(
+      `
+      input Foo { bar: Bar }
+      input Bar { foo: Foo }
+      type Query { q(input: Foo!): String! }
+      `,
+      [{
+        path: "q.gql",
+        content: `query Q($input: Foo!) { q(input: $input) }`,
+      }],
+    ),
+    trimIndent(`
+    type String = string;
+
+    type Bar = {
+      foo?: Foo | null;
+    };
+
+    type Foo = {
+      bar?: Bar | null;
+    };
+
+    export type Inputs = {
+      Bar: Bar;
+      Foo: Foo;
+    };
+
+    export const inputs = ["Bar", "Foo"] as const;
+
+    type Q = {
+      q: String;
+    };
+
+    type QVariables = {
+      input: Foo;
+    };
+
+    export type Query = {
+      Q: { data: Q; variables: QVariables; };
+    };
+
+    export const queries = {
+      Q: "q.gql",
+    };
+
+    `),
+  );
+});
+
+Deno.test("self-recursive input type", () => {
+  // Verifies that self-recursive input types are handled without infinite loops
+  assertEquals(
+    codegen(
+      `
+      input Node { children: [Node!] }
+      type Query { q(input: Node!): String! }
+      `,
+      [{
+        path: "q.gql",
+        content: `query Q($input: Node!) { q(input: $input) }`,
+      }],
+    ),
+    trimIndent(`
+    type String = string;
+
+    type Node = {
+      children?: Node[] | null;
+    };
+
+    export type Inputs = {
+      Node: Node;
+    };
+
+    export const inputs = ["Node"] as const;
+
+    type Q = {
+      q: String;
+    };
+
+    type QVariables = {
+      input: Node;
+    };
+
+    export type Query = {
+      Q: { data: Q; variables: QVariables; };
+    };
+
+    export const queries = {
+      Q: "q.gql",
+    };
+
+    `),
+  );
+});

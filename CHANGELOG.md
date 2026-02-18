@@ -1,3 +1,7 @@
+# 0.4.5
+
+- **[bugfix]** Fixed codegen crash with recursive/circular input types.
+
 # 0.4.4
 
 - **[bugfix]** Fixed `data: null` type and behavior in operation patches (now

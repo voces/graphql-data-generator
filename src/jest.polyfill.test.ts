@@ -47,5 +47,5 @@ for (const path of graphqlTagPaths) {
 
       console.log("Patched graphql-tag package.json successfully.");
     }
-  } catch {}
+  } catch { /** do nothing */ }
 }

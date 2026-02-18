@@ -533,10 +533,12 @@ const fillOutInput = (
     case "Name": {
       const def = inputs[input.value];
       if (!def) return input;
+      // For input types, expand to Object (this signals that it's an input type)
+      // but don't recursively expand nested input types to avoid infinite recursion
       return serializeInput(
         def[0].fields ?? [],
         input.optional,
-        inputs,
+        {},
         references,
       );
     }
@@ -814,8 +816,14 @@ export const codegen = (
 
             if (handledInputs.has(type.value) || !inputs[type.value]) return;
             const stack = [type.value];
+            const seen = new Set<string>();
             while (stack.length) {
               const current = stack.pop()!;
+              if (seen.has(current)) {
+                handledInputs.add(current);
+                continue;
+              }
+              seen.add(current);
               const def = inputs[current]?.[0];
               if (!def) {
                 throw new Error(`Could not find nested input '${current}'`);
@@ -827,7 +835,7 @@ export const codegen = (
                   if (type.kind === Kind.LIST_TYPE) type = type.type;
                 }
                 return type.name.value;
-              }).filter((t) => inputs[t]) ?? [];
+              }).filter((t) => inputs[t] && !seen.has(t)) ?? [];
               if (subFieldTypes.some((t) => !handledInputs.has(t))) {
                 stack.push(current);
                 stack.push(...subFieldTypes);

@@ -1,3 +1,4 @@
+// deno-lint-ignore-file jsx-no-useless-fragment no-unused-vars
 /// <reference types="https://esm.sh/@types/jest@29.5.3/index.d.ts" />
 // @deno-types="npm:@types/react"
 import React, { useMemo } from "npm:react";
